@@ -1845,9 +1845,12 @@ class M2RendererGL {
 	 * Get world transform matrix for an attachment point.
 	 * Combines bone transform with attachment local offset.
 	 * @param {number} attachmentId - attachment ID (e.g., 11 for helmet)
+	 * @param {boolean} [applyModelMatrix=true] - include the viewer's model matrix (camera
+	 * rotation). The viewer needs it; exporters pass false so attached items stay in the same
+	 * space as the baked body geometry, which never includes the model matrix.
 	 * @returns {Float32Array|null} - 4x4 transform matrix or null if not found
 	 */
-	getAttachmentTransform(attachmentId) {
+	getAttachmentTransform(attachmentId, applyModelMatrix = true) {
 		if (!this.m2)
 			return null;
 
@@ -1886,8 +1889,9 @@ class M2RendererGL {
 		const result = new Float32Array(16);
 		mat4_multiply(result, bone_mat, att_mat);
 
-		// apply character model's transform (rotation from camera controls)
-		mat4_multiply(result, this.model_matrix, result);
+		// apply character model's transform (rotation from camera controls) for the viewer only
+		if (applyModelMatrix)
+			mat4_multiply(result, this.model_matrix, result);
 
 		return result;
 	}
