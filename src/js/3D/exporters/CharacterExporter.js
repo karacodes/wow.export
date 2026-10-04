@@ -283,6 +283,30 @@ class CharacterExporter {
 	}
 
 	/**
+	 * Look up an attachment point on the character model (M2 first, then the .skel the
+	 * modern character models keep their attachments in).
+	 * @private
+	 * @param {number} attachment_id
+	 * @returns {{ bone: number, position: number[] }|null} bone index and the attachment
+	 * position converted to the exporter's Y-up space (WoW X=right, Y=forward, Z=up)
+	 */
+	_get_attachment(attachment_id) {
+		const char = this.char_renderer;
+		if (!char?.m2 || attachment_id === undefined)
+			return null;
+
+		let attachment = char.m2.getAttachmentById?.(attachment_id);
+		if (!attachment && char.skelLoader?.getAttachmentById)
+			attachment = char.skelLoader.getAttachmentById(attachment_id);
+
+		if (!attachment || attachment.bone < 0)
+			return null;
+
+		const pos = attachment.position;
+		return { bone: attachment.bone, position: [pos[0], pos[2], -pos[1]] };
+	}
+
+	/**
 	 * Process a single equipment renderer and get posed geometry
 	 * @private
 	 */
@@ -294,6 +318,18 @@ class CharacterExporter {
 		let vertices, normals;
 		let boneIndices = null;
 		let boneWeights = null;
+
+		// attachment pieces: which character bone they hang on and where, so the GLTF
+		// writer can parent them to that bone instead of leaving them at the origin
+		let attachment_bone = -1;
+		let attachment_position = null;
+		if (!is_collection_style && attachment_id !== undefined) {
+			const attachment = this._get_attachment(attachment_id);
+			if (attachment) {
+				attachment_bone = attachment.bone;
+				attachment_position = attachment.position;
+			}
+		}
 
 		if (is_collection_style && apply_pose && char_bone_matrices) {
 			// collection-style models use character's bone matrices via remapping
@@ -346,7 +382,9 @@ class CharacterExporter {
 			uv: m2.uv,
 			uv2: m2.uv2,
 			boneIndices,
-			boneWeights
+			boneWeights,
+			attachment_bone,
+			attachment_position
 		};
 	}
 
