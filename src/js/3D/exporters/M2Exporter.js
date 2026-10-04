@@ -405,11 +405,58 @@ class M2Exporter {
 	}
 
 	/**
+	 * Work out which textures a customization (skinned) model needs exported and how its
+	 * texture slots map onto them. The viewer binds these models from the character's
+	 * composite skin (types 1 and 8) and from the raw file of every other replaceable type,
+	 * so the export does the same instead of asking the item database for an item that
+	 * does not exist.
+	 * @private
+	 * @param {M2Loader} m2
+	 * @param {Map<number, number>} replaceable_textures - texture type -> fileDataID
+	 * @returns {{ textures: Array<number>, slotIndex: Map<number, number> }} fileDataIDs to
+	 * export and m2 texture index -> position in that list
+	 */
+	_skinnedModelTextures(m2, replaceable_textures) {
+		const textures = [];
+		const slotIndex = new Map();
+
+		for (let ti = 0; ti < m2.textures.length; ti++) {
+			const textureType = m2.textureTypes[ti];
+			if (textureType === 1 || textureType === 8)
+				continue; // composite skin, written as a data texture already
+
+			const fid = textureType === 0 ? m2.textures[ti].fileDataID : replaceable_textures?.get(textureType);
+			if (!(fid > 0))
+				continue;
+
+			slotIndex.set(ti, textures.length);
+			textures.push(fid);
+		}
+
+		return { textures, slotIndex };
+	}
+
+	/**
+	 * Material name for a submesh of a customization (skinned) model.
+	 * @private
+	 */
+	_skinnedModelMaterial(m2, textureIdx, slotIndex, equipTextures, validTextures) {
+		const textureType = m2.textureTypes[textureIdx];
+		if (textureType === 1 || textureType === 8) {
+			const composite = validTextures.get('data-' + textureType) || validTextures.get('data-1');
+			return composite?.matName ?? null;
+		}
+
+		const texInfo = equipTextures.get(slotIndex.get(textureIdx));
+		return texInfo?.matName ?? null;
+	}
+
+	/**
 	 * Add equipment model to GLTF writer.
 	 * @private
 	 */
 	async _addEquipmentToGLTF(gltf, equip, textureMap, outDir, format, helper) {
-		const { slot_id, item_id, renderer, vertices, normals, uv, uv2, boneIndices, boneWeights, textures, is_collection_style } = equip;
+		const { slot_id, item_id, renderer, vertices, normals, uv, uv2, boneIndices, boneWeights, is_collection_style, is_skinned_model } = equip;
 
 		if (!renderer?.m2)
 			return;
@@ -422,6 +469,13 @@ class M2Exporter {
 			return;
 
 		const slot_name = require('../../wow/EquipmentSlots').get_slot_name(slot_id) || `Slot${slot_id}`;
+
+		let textures = equip.textures;
+		let skinnedSlots = null;
+		if (is_skinned_model)
+			({ textures, slotIndex: skinnedSlots } = this._skinnedModelTextures(m2, equip.replaceable_textures));
+
+		const base_name = is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
 
 		// export equipment textures and build material map
 		const config = core.view.config;
@@ -505,8 +559,10 @@ class M2Exporter {
 				const texture = m2.textures[textureIdx];
 				const textureType = m2.textureTypes[textureIdx];
 
-				// check for replaceable texture
-				if (textureType >= 11 && textureType < 14) {
+				if (is_skinned_model) {
+					matName = this._skinnedModelMaterial(m2, textureIdx, skinnedSlots, equipTextures, textureMap);
+				} else if (textureType >= 11 && textureType < 14) {
+					// check for replaceable texture
 					const texInfo = equipTextures.get(textureType - 11);
 					if (texInfo)
 						matName = texInfo.matName;
@@ -528,7 +584,7 @@ class M2Exporter {
 
 		// add equipment to GLTF
 		gltf.addEquipmentModel({
-			name: `${slot_name}_Item${item_id}`,
+			name: base_name,
 			vertices: vertices,
 			normals: normals,
 			uv: uv,
@@ -549,7 +605,7 @@ class M2Exporter {
 		const config = core.view.config;
 		const useAlpha = config.modelsExportAlpha;
 		const usePosix = config.pathFormat === 'posix';
-		const { slot_id, item_id, renderer, vertices, normals, uv, uv2, textures } = equip;
+		const { slot_id, item_id, renderer, vertices, normals, uv, uv2, is_skinned_model } = equip;
 
 		if (!renderer?.m2)
 			return;
@@ -560,6 +616,11 @@ class M2Exporter {
 		const skin = await m2.getSkin(0);
 		if (!skin)
 			return;
+
+		let textures = equip.textures;
+		let skinnedSlots = null;
+		if (is_skinned_model)
+			({ textures, slotIndex: skinnedSlots } = this._skinnedModelTextures(m2, equip.replaceable_textures));
 
 		// build UV arrays
 		const uvArrays = [];
@@ -627,6 +688,7 @@ class M2Exporter {
 
 		// add equipment meshes
 		const slot_name = require('../../wow/EquipmentSlots').get_slot_name(slot_id) || `Slot${slot_id}`;
+		const base_name = is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
 		let mesh_idx = 0;
 
 		for (let mI = 0; mI < skin.subMeshes.length; mI++) {
@@ -647,8 +709,10 @@ class M2Exporter {
 				const texture = m2.textures[textureIdx];
 				const textureType = m2.textureTypes[textureIdx];
 
-				// check for replaceable texture
-				if (textureType >= 11 && textureType < 14) {
+				if (is_skinned_model) {
+					matName = this._skinnedModelMaterial(m2, textureIdx, skinnedSlots, equipTextures, validTextures);
+				} else if (textureType >= 11 && textureType < 14) {
+					// check for replaceable texture
 					const texInfo = equipTextures.get(textureType - 11);
 					if (texInfo)
 						matName = texInfo.matName;
@@ -661,7 +725,7 @@ class M2Exporter {
 				}
 			}
 
-			const meshName = `${slot_name}_Item${item_id}_${mesh_idx++}`;
+			const meshName = `${base_name}_${mesh_idx++}`;
 			obj.addMesh(meshName, verts, matName);
 		}
 
@@ -690,6 +754,7 @@ class M2Exporter {
 
 		// add equipment meshes
 		const slot_name = require('../../wow/EquipmentSlots').get_slot_name(slot_id) || `Slot${slot_id}`;
+		const base_name = equip.is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
 		let mesh_idx = 0;
 
 		for (let mI = 0; mI < skin.subMeshes.length; mI++) {
@@ -702,7 +767,7 @@ class M2Exporter {
 			for (let vI = 0; vI < mesh.triangleCount; vI++)
 				verts[vI] = skin.indices[skin.triangles[mesh.triangleStart + vI]];
 
-			const meshName = `${slot_name}_Item${item_id}_${mesh_idx++}`;
+			const meshName = `${base_name}_${mesh_idx++}`;
 			stl.addMesh(meshName, verts);
 		}
 
