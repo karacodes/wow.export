@@ -77,6 +77,37 @@ class M2Exporter {
 	}
 
 	/**
+	 * Set the character block written into the OBJ sidecar JSON (`character` property):
+	 * race, gender, pose, attachment points and the item/customization model list. Entries
+	 * carrying `equipmentIndex` get the OBJ group names of that equipment model.
+	 * @param {object|null} meta
+	 */
+	setCharacterMeta(meta) {
+		this.characterMeta = meta;
+	}
+
+	/**
+	 * The character block with each equipment entry's exported group names filled in.
+	 * @private
+	 * @returns {object}
+	 */
+	_characterMetaWithMeshes() {
+		const meta = Object.assign({}, this.characterMeta);
+		for (const key of ['equipment', 'customization']) {
+			if (!Array.isArray(meta[key]))
+				continue;
+
+			meta[key] = meta[key].map(entry => {
+				const { equipmentIndex, ...rest } = entry;
+				const equip = equipmentIndex !== undefined ? this.equipmentModels?.[equipmentIndex] : undefined;
+				return Object.assign(rest, { meshes: equip?.mesh_names ? [...equip.mesh_names] : [] });
+			});
+		}
+
+		return meta;
+	}
+
+	/**
 	 * Next mesh index for an equipment base name. An item with several models (a belt's
 	 * buckle and band, a two-piece helm) exports each model in its own call, so the
 	 * counter lives on the exporter: the second model continues the numbering instead of
@@ -722,6 +753,7 @@ class M2Exporter {
 		// add equipment meshes
 		const slot_name = require('../../wow/EquipmentSlots').get_slot_name(slot_id) || `Slot${slot_id}`;
 		const base_name = is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
+		equip.mesh_names = [];
 
 		for (let mI = 0; mI < skin.subMeshes.length; mI++) {
 			// check visibility via draw_calls if available
@@ -759,6 +791,7 @@ class M2Exporter {
 
 			const meshName = `${base_name}_${this._nextEquipmentMeshIndex(base_name)}`;
 			obj.addMesh(meshName, verts, matName);
+			equip.mesh_names.push(meshName);
 		}
 
 		log.write('Added equipment meshes for slot %d (item %d)', slot_id, item_id);
@@ -880,8 +913,10 @@ class M2Exporter {
 			await json.write(config.overwriteFiles);
 		}
 
+		// the sidecar is written after the equipment models, so it can list their groups
+		let metaJson = null;
 		if (exportMeta) {
-			const json = new JSONWriter(ExportHelper.replaceExtension(out, '.json'));
+			const json = metaJson = new JSONWriter(ExportHelper.replaceExtension(out, '.json'));
 
 			// Clone the submesh array and add a custom 'enabled' property
 			// to indicate to external readers which submeshes are not included
@@ -932,9 +967,6 @@ class M2Exporter {
 				fileName: skin.fileName,
 				fileDataID: skin.fileDataID
 			});
-
-			await json.write(config.overwriteFiles);
-			fileManifest?.push({ type: 'META', fileDataID: this.fileDataID, file: json.out });
 		}
 
 		// Faces
@@ -975,6 +1007,14 @@ class M2Exporter {
 
 				await this._exportEquipmentToOBJ(obj, mtl, outDir, equip, validTextures, helper, fileManifest);
 			}
+		}
+
+		if (metaJson) {
+			if (this.characterMeta)
+				metaJson.addProperty('character', this._characterMetaWithMeshes());
+
+			await metaJson.write(config.overwriteFiles);
+			fileManifest?.push({ type: 'META', fileDataID: this.fileDataID, file: metaJson.out });
 		}
 
 		if (!mtl.isEmpty)

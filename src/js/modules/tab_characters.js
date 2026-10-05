@@ -32,6 +32,8 @@ const DBItemList = require('../db/caches/DBItemList');
 const DBGuildTabard = require('../db/caches/DBGuildTabard');
 const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization');
 const character_appearance = require('../ui/character-appearance');
+const AnimMapper = require('../3D/AnimMapper');
+const BoneMapper = require('../3D/BoneMapper');
 
 
 // geoset group constants (CG enum from DBItemGeosets)
@@ -693,6 +695,7 @@ async function update_equipment_models(core) {
 
 					const is_collection_style = false;
 					renderer.item_model_index = model_index;
+					renderer.item_file_data_id = file_data_id;
 
 					// apply this model's textures (a two-model item has a list per model)
 					await renderer.applyReplaceableTextures({ textures: DBItemModels.getItemTexturesForModel(display, model_index) });
@@ -721,6 +724,7 @@ async function update_equipment_models(core) {
 					const renderer = new M2RendererGL(file, gl_context, false, false);
 					await renderer.load();
 					renderer.item_model_index = model_index;
+					renderer.item_file_data_id = file_data_id;
 
 					// build bone remap table from character bones
 					if (active_renderer?.bones)
@@ -874,6 +878,130 @@ function dedupe_customization_names(equipment_data) {
 
 		seen.add(entry.name);
 	}
+}
+
+// attachment id -> name, for the sidecar
+const ATTACHMENT_NAMES = Object.fromEntries(Object.entries(ATTACHMENT_ID).map(([name, id]) => [id, name]));
+
+/**
+ * Describe customization choices with their option and choice labels.
+ * @param {object} core
+ * @param {Array<number>} choice_ids
+ * @returns {Array<{optionID: number|null, option: string|null, choiceID: number, choice: string|null}>}
+ */
+function describe_choices(core, choice_ids) {
+	const model_id = core.view.chrCustModelSelection?.[0]?.id;
+	const options = model_id !== undefined ? (DBCharacterCustomization.get_options_for_model(model_id) || []) : [];
+
+	const out = [];
+	for (const choice_id of choice_ids || []) {
+		const option_id = DBCharacterCustomization.get_choice_option(choice_id);
+		const option = options.find(o => o.id === option_id);
+		const choice = (DBCharacterCustomization.get_choices_for_option(option_id) || []).find(c => c.id === choice_id);
+		out.push({ optionID: option_id ?? null, option: option?.label ?? null, choiceID: choice_id, choice: choice?.label ?? null });
+	}
+
+	return out;
+}
+
+/**
+ * The print-ready block of the OBJ sidecar: who the character is, how the viewer posed and
+ * turned it, where its attachment points are, and which item model and customization model
+ * became which OBJ groups. Everything a downstream tool needed to dig out of the game files
+ * (attachment table, rest scales) or guess from file names (race, gender) is here.
+ * @param {object} core
+ * @param {M2RendererGL} renderer - the character renderer
+ * @param {number} model_file_data_id
+ * @param {Array<object>} equipment_data - entries given to M2Exporter.setEquipmentModels, same order
+ * @param {boolean} apply_pose
+ * @returns {object}
+ */
+function build_character_meta(core, renderer, model_file_data_id, equipment_data, apply_pose) {
+	const race = core.view.chrCustRaceSelection?.[0];
+	const model = core.view.chrCustModelSelection?.[0];
+	const char_info = get_current_race_gender(core);
+	const gender_index = char_info?.genderIndex ?? null;
+
+	// the animation the viewer shows (and bakes into the OBJ when apply_pose is on)
+	const pose = { applied: apply_pose === true, animation: null };
+	if (renderer?.current_animation !== null && renderer?.current_animation !== undefined) {
+		const source = renderer.current_anim_source || renderer.skelLoader || renderer.m2;
+		const index = renderer.current_anim_index ?? renderer.current_animation;
+		const anim = source?.animations?.[index];
+		if (anim) {
+			pose.animation = {
+				id: anim.id,
+				name: AnimMapper.get_anim_name(anim.id),
+				variationIndex: anim.variationIndex,
+				m2Index: index,
+				durationMs: anim.duration,
+				timeMs: Math.round((renderer.animation_time || 0) * 1000),
+				frame: renderer.get_animation_frame?.() ?? null,
+				frameCount: renderer.get_animation_frame_count?.() ?? null
+			};
+		}
+	}
+
+	// attachment points in the game's own space (the loaders only convert bone pivots)
+	const bones = renderer?.bones || [];
+	const attachment_source = [renderer?.m2?.attachments, renderer?.childSkelLoader?.attachments, renderer?.skelLoader?.attachments].find(a => a?.length > 0) || [];
+	const attachments = attachment_source.map(att => {
+		const bone = bones[att.bone];
+		const scale = bone?.scale?.values?.[0]?.[0] ? Array.from(bone.scale.values[0][0]) : null;
+		return {
+			id: att.id,
+			name: ATTACHMENT_NAMES[att.id] ?? null,
+			bone: att.bone,
+			boneName: bone ? BoneMapper.get_bone_name(bone.boneID, att.bone, bone.boneNameCRC) : null,
+			position: Array.from(att.position),
+			// the loaders swap the scale axes to Y-up; swap back to the game's order
+			restScale: scale ? [scale[0], scale[2], scale[1]] : [1, 1, 1]
+		};
+	});
+
+	const equipment = [];
+	const customization = [];
+	for (let i = 0; i < equipment_data.length; i++) {
+		const equip = equipment_data[i];
+		if (equip.is_skinned_model) {
+			customization.push({
+				equipmentIndex: i,
+				fileDataID: equip.slot_id,
+				name: equip.name ?? null,
+				choices: describe_choices(core, equip.choice_ids)
+			});
+			continue;
+		}
+
+		equipment.push({
+			equipmentIndex: i,
+			slot: equip.slot_id,
+			slotName: get_slot_name(equip.slot_id) || null,
+			itemID: equip.item_id,
+			displayID: DBItemModels.getDisplayId(equip.item_id, equip.modifier_id) ?? null,
+			modifierID: equip.modifier_id ?? 0,
+			modelFileDataID: equip.renderer?.item_file_data_id ?? null,
+			modelIndex: equip.model_index ?? 0,
+			attachmentID: equip.is_collection_style ? null : (equip.attachment_id ?? null),
+			style: equip.is_collection_style ? 'collection' : 'attachment',
+			textures: equip.textures || []
+		});
+	}
+
+	return {
+		formatVersion: 1,
+		space: 'wow: x right, y forward, z up, as in the game files; the OBJ and glTF are Y-up (x, z, -y)',
+		race: race ? { id: race.id, name: race.label } : null,
+		gender: gender_index === null ? null : { index: gender_index, name: gender_index === 1 ? 'female' : 'male' },
+		model: { id: model?.id ?? null, label: model?.label ?? null, fileDataID: model_file_data_id, fileName: listfile.getByID(model_file_data_id) ?? null },
+		skeleton: { fileDataID: renderer?.m2?.skeletonFileID ?? 0, parentFileDataID: renderer?.childSkelLoader?.parent_skel_file_id ?? 0 },
+		pose,
+		viewerYaw: core.view.chrModelViewerContext?.controls?.model_rotation_y ?? null,
+		attachments,
+		equipment,
+		customization,
+		activeChoices: describe_choices(core, (core.view.chrCustActiveChoices || []).map(c => c.choiceID))
+	};
 }
 
 async function apply_skinned_model_textures(renderer, replaceable_textures) {
@@ -2061,9 +2189,9 @@ const export_char_model = async (core) => {
 				skinned_model_renderers
 			);
 
+			const equipment_data = [];
 			if (char_exporter.has_equipment()) {
 				const char_info = get_current_race_gender(core);
-				const equipment_data = [];
 				const replaceable_textures = character_appearance.resolve_replaceable_textures(core.view.chrCustActiveChoices, current_char_component_texture_layout_id);
 
 				for (const geom of char_exporter.get_equipment_geometry(apply_pose)) {
@@ -2080,6 +2208,12 @@ const export_char_model = async (core) => {
 						uv: geom.uv,
 						uv2: geom.uv2,
 						textures,
+						// for the sidecar
+						modifier_id: geom.modifier_id,
+						model_index: geom.model_index,
+						attachment_id: geom.attachment_id,
+						is_collection_style: geom.is_collection_style === true,
+						choice_ids: geom.choice_ids,
 						// customization models (mechagnome limbs, dracthyr armour...) have no item;
 						// they are named by their choice and textured like the viewer textures them
 						is_skinned_model: geom.is_skinned_model === true,
@@ -2092,6 +2226,9 @@ const export_char_model = async (core) => {
 				exporter.setEquipmentModels(equipment_data);
 				log.write('Exporting character with %d equipment models', equipment_data.length);
 			}
+
+			// the print-ready sidecar block (character, pose, attachments, item -> group map)
+			exporter.setCharacterMeta(build_character_meta(core, active_renderer, file_data_id, equipment_data, apply_pose));
 
 			if (format === 'STL') {
 				await exporter.exportAsSTL(export_path, false, helper, []);
