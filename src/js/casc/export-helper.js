@@ -282,9 +282,12 @@ class ExportHelper {
 			this.succeeded++;
 		} else {
 			log.write('Failed to export %s (%s)', item, error);
-			
-			if (stackTrace != null)
+
+			// release builds have no console, so the stack goes to runtime.log too
+			if (stackTrace != null) {
 				console.log(stackTrace);
+				log.write('%s', stackTrace);
+			}
 		}
 
 		this.updateCurrentTask();
