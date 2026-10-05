@@ -947,6 +947,10 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 	const attachment_source = [renderer?.m2?.attachments, renderer?.childSkelLoader?.attachments, renderer?.skelLoader?.attachments].find(a => a?.length > 0) || [];
 	const attachments = attachment_source.map(att => {
 		const bone = bones[att.bone];
+		// restScale is the bone's scale at the first key of its first animation (Stand), the
+		// scale the viewer applies to whatever hangs on that attachment; attachment bones move
+		// no vertices, so an importer cannot recover it from the mesh (weapons 1.15, back 0.69,
+		// shoulders 0.75 on a gnome). Unanimated bones have no keys and keep [1, 1, 1].
 		const scale = bone?.scale?.values?.[0]?.[0] ? Array.from(bone.scale.values[0][0]) : null;
 		return {
 			id: att.id,
@@ -2103,6 +2107,230 @@ function update_chr_race_list(core) {
 //endregion
 
 //region export
+/**
+ * Export the loaded character as a posed OBJ or STL, with the print sidecar beside it.
+ * @param {object} core
+ * @param {ExportHelper} helper
+ * @param {object|null} export_paths
+ * @param {string} format - 'OBJ' or 'STL'
+ * @param {number} file_data_id
+ * @param {string} file_name
+ * @returns {Promise<boolean>} true when the file was written and marked
+ */
+async function export_char_mesh(core, helper, export_paths, format, file_data_id, file_name) {
+	const ext = format === 'STL' ? '.stl' : '.obj';
+	const mark_file_name = ExportHelper.replaceExtension(file_name, ext);
+	const export_path = ExportHelper.getExportPath(mark_file_name);
+
+	const casc = core.view.casc;
+	const data = await casc.getFile(file_data_id);
+	const exporter = new M2Exporter(data, [], file_data_id);
+
+	for (const [chr_model_texture_target, chr_material] of chr_materials)
+		exporter.addURITexture(chr_model_texture_target, chr_material.getURI());
+
+	exporter.setGeosetMask(core.view.chrCustGeosets);
+
+	const apply_pose = core.view.config.chrExportApplyPose;
+	if (apply_pose) {
+		const baked = active_renderer.getBakedGeometry();
+		if (baked)
+			exporter.setPosedGeometry(baked.vertices, baked.normals);
+	}
+
+	// collect equipment models for export
+	const char_exporter = new CharacterExporter(
+		active_renderer,
+		equipment_model_renderers,
+		collection_model_renderers,
+		skinned_model_renderers
+	);
+
+	const equipment_data = [];
+	if (char_exporter.has_equipment()) {
+		const char_info = get_current_race_gender(core);
+		const replaceable_textures = character_appearance.resolve_replaceable_textures(core.view.chrCustActiveChoices, current_char_component_texture_layout_id);
+
+		for (const geom of char_exporter.get_equipment_geometry(apply_pose)) {
+			// get this model's textures from display info
+			const display = DBItemModels.getItemDisplay(geom.item_id, char_info?.raceID, char_info?.genderIndex, geom.modifier_id);
+			const textures = DBItemModels.getItemTexturesForModel(display, geom.model_index ?? 0);
+
+			equipment_data.push({
+				slot_id: geom.slot_id,
+				item_id: geom.item_id,
+				renderer: geom.renderer,
+				vertices: geom.vertices,
+				normals: geom.normals,
+				uv: geom.uv,
+				uv2: geom.uv2,
+				textures,
+				// for the sidecar
+				modifier_id: geom.modifier_id,
+				model_index: geom.model_index,
+				attachment_id: geom.attachment_id,
+				is_collection_style: geom.is_collection_style === true,
+				choice_ids: geom.choice_ids,
+				// customization models (mechagnome limbs, dracthyr armour...) have no item;
+				// they are named by their choice and textured like the viewer textures them
+				is_skinned_model: geom.is_skinned_model === true,
+				name: geom.is_skinned_model ? customization_piece_name(core, geom.choice_ids, geom.slot_id) : undefined,
+				replaceable_textures: geom.is_skinned_model ? replaceable_textures : undefined
+			});
+		}
+
+		dedupe_customization_names(equipment_data);
+		exporter.setEquipmentModels(equipment_data);
+		log.write('Exporting character with %d equipment models', equipment_data.length);
+	}
+
+	// the print-ready sidecar block (character, pose, attachments, item -> group map)
+	exporter.setCharacterMeta(build_character_meta(core, active_renderer, file_data_id, equipment_data, apply_pose));
+
+	if (format === 'STL') {
+		await exporter.exportAsSTL(export_path, false, helper, []);
+		await export_paths?.writeLine('M2_STL:' + export_path);
+	} else {
+		await exporter.exportAsOBJ(export_path, false, helper, []);
+		await export_paths?.writeLine('M2_OBJ:' + export_path);
+	}
+
+	if (helper.isCancelled())
+		return false;
+
+	helper.mark(mark_file_name, true);
+	return true;
+}
+
+/**
+ * Export the loaded character as a rigged glTF or GLB (animations when enabled).
+ * @param {object} core
+ * @param {ExportHelper} helper
+ * @param {object|null} export_paths
+ * @param {string} format - 'GLTF' or 'GLB'
+ * @param {number} file_data_id
+ * @param {string} file_name
+ * @returns {Promise<boolean>} true when the file was written and marked
+ */
+async function export_char_gltf(core, helper, export_paths, format, file_data_id, file_name) {
+	const casc = core.view.casc;
+	const data = await casc.getFile(file_data_id);
+	const mark_file_name = ExportHelper.replaceExtension(file_name, '.gltf');
+	const export_path = ExportHelper.getExportPath(mark_file_name);
+	const exporter = new M2Exporter(data, [], file_data_id);
+
+	for (const [chr_model_texture_target, chr_material] of chr_materials)
+		exporter.addURITexture(chr_model_texture_target, chr_material.getURI());
+
+	exporter.setGeosetMask(core.view.chrCustGeosets);
+
+	// collect equipment models for GLTF export (with bone data for rigging)
+	const char_exporter = new CharacterExporter(
+		active_renderer,
+		equipment_model_renderers,
+		collection_model_renderers,
+		skinned_model_renderers
+	);
+
+	if (char_exporter.has_equipment()) {
+		const char_info = get_current_race_gender(core);
+		const equipment_data = [];
+		const replaceable_textures = character_appearance.resolve_replaceable_textures(core.view.chrCustActiveChoices, current_char_component_texture_layout_id);
+
+		// for GLTF, don't apply pose - let the armature handle it
+		for (const geom of char_exporter.get_equipment_geometry(false)) {
+			const display = DBItemModels.getItemDisplay(geom.item_id, char_info?.raceID, char_info?.genderIndex, geom.modifier_id);
+			const textures = DBItemModels.getItemTexturesForModel(display, geom.model_index ?? 0);
+
+			equipment_data.push({
+				slot_id: geom.slot_id,
+				item_id: geom.item_id,
+				renderer: geom.renderer,
+				vertices: geom.vertices,
+				normals: geom.normals,
+				uv: geom.uv,
+				uv2: geom.uv2,
+				boneIndices: geom.boneIndices,
+				boneWeights: geom.boneWeights,
+				attachment_bone: geom.attachment_bone,
+				attachment_position: geom.attachment_position,
+				textures,
+				is_collection_style: geom.is_collection_style,
+				is_skinned_model: geom.is_skinned_model === true,
+				name: geom.is_skinned_model ? customization_piece_name(core, geom.choice_ids, geom.slot_id) : undefined,
+				replaceable_textures: geom.is_skinned_model ? replaceable_textures : undefined
+			});
+		}
+
+		dedupe_customization_names(equipment_data);
+		exporter.setEquipmentModelsGLTF(equipment_data);
+		log.write('Exporting GLTF character with %d equipment models', equipment_data.length);
+	}
+
+	const format_lower = format.toLowerCase();
+	await exporter.exportAsGLTF(export_path, helper, format_lower);
+	await export_paths?.writeLine('M2_' + format + ':' + export_path);
+
+	if (helper.isCancelled())
+		return false;
+
+	helper.mark(mark_file_name, true);
+	return true;
+}
+
+// the export settings WoW Print's importer expects, forced for the duration of a print
+// export and restored afterwards, so the user's own choices for the other formats stay
+const PRINT_EXPORT_SETTINGS = {
+	chrExportApplyPose: true, // the OBJ carries the posed vertices the add-on solves the pose from
+	modelsExportAnimations: true, // the glTF carries the rig's animations for the pose search fallback
+	modelsExportWithBonePrefix: true, // bone_<n> node names, which the add-on maps bones by
+	modelsExportUV2: false, // a second UV set is noise for the print pipeline
+	modelsExportTextures: true, // the relief step needs the textures
+	modelsExportAlpha: true,
+	overwriteFiles: true // both files must come from this scene state, never a stale one on disk
+};
+
+/**
+ * One click for WoW Print: the posed OBJ with its sidecar and the rigged glTF with
+ * animations, written from the same scene state into the same folder, with the
+ * settings the add-on's importer expects (see PRINT_EXPORT_SETTINGS).
+ * @param {object} core
+ * @param {object|null} export_paths
+ */
+async function export_char_for_printing(core, export_paths) {
+	if (!active_renderer?.m2) {
+		core.setToast('error', 'no character model loaded to export', null, -1);
+		export_paths?.close();
+		return;
+	}
+
+	const config = core.view.config;
+	const saved_settings = {};
+	for (const [key, value] of Object.entries(PRINT_EXPORT_SETTINGS)) {
+		saved_settings[key] = config[key];
+		config[key] = value;
+	}
+
+	const helper = new ExportHelper(2, 'file');
+	helper.start();
+
+	const file_data_id = active_model;
+	const file_name = listfile.getByID(file_data_id);
+	log.write('Exporting character %s for printing (posed OBJ + sidecar, rigged glTF with animations)', file_name);
+
+	try {
+		if (!helper.isCancelled() && await export_char_mesh(core, helper, export_paths, 'OBJ', file_data_id, file_name))
+			await export_char_gltf(core, helper, export_paths, 'GLTF', file_data_id, file_name);
+	} catch (e) {
+		helper.mark(file_name, false, e.message, e.stack);
+	} finally {
+		Object.assign(config, saved_settings);
+	}
+
+	helper.finish();
+	export_paths?.close();
+}
+
 const export_char_model = async (core) => {
 	const export_paths = core.openLastExportStream();
 	const format = core.view.config.exportCharacterFormat;
@@ -2144,6 +2372,17 @@ const export_char_model = async (core) => {
 		return;
 	}
 
+	if (format === 'PRINT') {
+		await export_char_for_printing(core, export_paths);
+		return;
+	}
+
+	if ((format === 'OBJ' || format === 'STL') && !active_renderer?.m2) {
+		core.setToast('error', 'no character model loaded to export', null, -1);
+		export_paths?.close();
+		return;
+	}
+
 	const helper = new ExportHelper(1, 'model');
 	helper.start();
 
@@ -2154,158 +2393,10 @@ const export_char_model = async (core) => {
 	const file_name = listfile.getByID(file_data_id);
 
 	try {
-		if (format === 'OBJ' || format === 'STL') {
-			if (!active_renderer || !active_renderer.m2) {
-				core.setToast('error', 'no character model loaded to export', null, -1);
-				export_paths?.close();
-				return;
-			}
-
-			const ext = format === 'STL' ? '.stl' : '.obj';
-			const mark_file_name = ExportHelper.replaceExtension(file_name, ext);
-			const export_path = ExportHelper.getExportPath(mark_file_name);
-
-			const casc = core.view.casc;
-			const data = await casc.getFile(file_data_id);
-			const exporter = new M2Exporter(data, [], file_data_id);
-
-			for (const [chr_model_texture_target, chr_material] of chr_materials)
-				exporter.addURITexture(chr_model_texture_target, chr_material.getURI());
-
-			exporter.setGeosetMask(core.view.chrCustGeosets);
-
-			const apply_pose = core.view.config.chrExportApplyPose;
-			if (apply_pose) {
-				const baked = active_renderer.getBakedGeometry();
-				if (baked)
-					exporter.setPosedGeometry(baked.vertices, baked.normals);
-			}
-
-			// collect equipment models for export
-			const char_exporter = new CharacterExporter(
-				active_renderer,
-				equipment_model_renderers,
-				collection_model_renderers,
-				skinned_model_renderers
-			);
-
-			const equipment_data = [];
-			if (char_exporter.has_equipment()) {
-				const char_info = get_current_race_gender(core);
-				const replaceable_textures = character_appearance.resolve_replaceable_textures(core.view.chrCustActiveChoices, current_char_component_texture_layout_id);
-
-				for (const geom of char_exporter.get_equipment_geometry(apply_pose)) {
-					// get this model's textures from display info
-					const display = DBItemModels.getItemDisplay(geom.item_id, char_info?.raceID, char_info?.genderIndex, geom.modifier_id);
-					const textures = DBItemModels.getItemTexturesForModel(display, geom.model_index ?? 0);
-
-					equipment_data.push({
-						slot_id: geom.slot_id,
-						item_id: geom.item_id,
-						renderer: geom.renderer,
-						vertices: geom.vertices,
-						normals: geom.normals,
-						uv: geom.uv,
-						uv2: geom.uv2,
-						textures,
-						// for the sidecar
-						modifier_id: geom.modifier_id,
-						model_index: geom.model_index,
-						attachment_id: geom.attachment_id,
-						is_collection_style: geom.is_collection_style === true,
-						choice_ids: geom.choice_ids,
-						// customization models (mechagnome limbs, dracthyr armour...) have no item;
-						// they are named by their choice and textured like the viewer textures them
-						is_skinned_model: geom.is_skinned_model === true,
-						name: geom.is_skinned_model ? customization_piece_name(core, geom.choice_ids, geom.slot_id) : undefined,
-						replaceable_textures: geom.is_skinned_model ? replaceable_textures : undefined
-					});
-				}
-
-				dedupe_customization_names(equipment_data);
-				exporter.setEquipmentModels(equipment_data);
-				log.write('Exporting character with %d equipment models', equipment_data.length);
-			}
-
-			// the print-ready sidecar block (character, pose, attachments, item -> group map)
-			exporter.setCharacterMeta(build_character_meta(core, active_renderer, file_data_id, equipment_data, apply_pose));
-
-			if (format === 'STL') {
-				await exporter.exportAsSTL(export_path, false, helper, []);
-				await export_paths?.writeLine('M2_STL:' + export_path);
-			} else {
-				await exporter.exportAsOBJ(export_path, false, helper, []);
-				await export_paths?.writeLine('M2_OBJ:' + export_path);
-			}
-
-			if (helper.isCancelled())
-				return;
-
-			helper.mark(mark_file_name, true);
-		} else {
-			const casc = core.view.casc;
-			const data = await casc.getFile(file_data_id);
-			const mark_file_name = ExportHelper.replaceExtension(file_name, '.gltf');
-			const export_path = ExportHelper.getExportPath(mark_file_name);
-			const exporter = new M2Exporter(data, [], file_data_id);
-
-			for (const [chr_model_texture_target, chr_material] of chr_materials)
-				exporter.addURITexture(chr_model_texture_target, chr_material.getURI());
-
-			exporter.setGeosetMask(core.view.chrCustGeosets);
-
-			// collect equipment models for GLTF export (with bone data for rigging)
-			const char_exporter = new CharacterExporter(
-				active_renderer,
-				equipment_model_renderers,
-				collection_model_renderers,
-				skinned_model_renderers
-			);
-
-			if (char_exporter.has_equipment()) {
-				const char_info = get_current_race_gender(core);
-				const equipment_data = [];
-				const replaceable_textures = character_appearance.resolve_replaceable_textures(core.view.chrCustActiveChoices, current_char_component_texture_layout_id);
-
-				// for GLTF, don't apply pose - let the armature handle it
-				for (const geom of char_exporter.get_equipment_geometry(false)) {
-					const display = DBItemModels.getItemDisplay(geom.item_id, char_info?.raceID, char_info?.genderIndex, geom.modifier_id);
-					const textures = DBItemModels.getItemTexturesForModel(display, geom.model_index ?? 0);
-
-					equipment_data.push({
-						slot_id: geom.slot_id,
-						item_id: geom.item_id,
-						renderer: geom.renderer,
-						vertices: geom.vertices,
-						normals: geom.normals,
-						uv: geom.uv,
-						uv2: geom.uv2,
-						boneIndices: geom.boneIndices,
-						boneWeights: geom.boneWeights,
-						attachment_bone: geom.attachment_bone,
-						attachment_position: geom.attachment_position,
-						textures,
-						is_collection_style: geom.is_collection_style,
-						is_skinned_model: geom.is_skinned_model === true,
-						name: geom.is_skinned_model ? customization_piece_name(core, geom.choice_ids, geom.slot_id) : undefined,
-						replaceable_textures: geom.is_skinned_model ? replaceable_textures : undefined
-					});
-				}
-
-				dedupe_customization_names(equipment_data);
-				exporter.setEquipmentModelsGLTF(equipment_data);
-				log.write('Exporting GLTF character with %d equipment models', equipment_data.length);
-			}
-
-			const format_lower = format.toLowerCase();
-			await exporter.exportAsGLTF(export_path, helper, format_lower);
-			await export_paths?.writeLine('M2_' + format + ':' + export_path);
-
-			if (helper.isCancelled())
-				return;
-
-			helper.mark(mark_file_name, true);
-		}
+		if (format === 'OBJ' || format === 'STL')
+			await export_char_mesh(core, helper, export_paths, format, file_data_id, file_name);
+		else
+			await export_char_gltf(core, helper, export_paths, format, file_data_id, file_name);
 	} catch (e) {
 		helper.mark(file_name, false, e.message, e.stack);
 	}
@@ -2609,6 +2700,7 @@ module.exports = {
 								<input type="checkbox" v-model="$core.view.config.chrExportApplyPose"/>
 								<span>Apply pose</span>
 							</label>
+							<span class="chr-print-export-hint" v-show="$core.view.config.exportCharacterFormat === 'PRINT'" title="Writes the posed OBJ with its sidecar and the rigged glTF with animations from the current scene, overwriting earlier files of the same name. Pose, animations, bone prefix, textures and alpha are forced on and UV2 off for this export only.">Posed OBJ + sidecar and rigged glTF with animations, settings fixed for WoW Print</span>
 							<component :is="$components.MenuButton" :options="$core.view.menuButtonCharacterExport" :default="$core.view.config.exportCharacterFormat" @change="$core.view.config.exportCharacterFormat = $event" :disabled="$core.view.chrModelLoading" @click="export_character"></component>
 						</div>
 						<div class="character-export-menu" v-show="$core.view.chrExportMenu == 'textures'">

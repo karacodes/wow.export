@@ -3537,6 +3537,12 @@ input[type=number]::-webkit-outer-spin-button {
 	margin-top: 5px;
 }
 
+.character-export-menu .chr-print-export-hint {
+	font-size: 12px;
+	opacity: 0.8;
+	max-width: 300px;
+}
+
 .texture-menu-controls {
 	display: flex;
 	justify-content: space-between;
