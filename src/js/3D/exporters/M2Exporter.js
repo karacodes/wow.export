@@ -456,7 +456,7 @@ class M2Exporter {
 	 * @private
 	 */
 	async _addEquipmentToGLTF(gltf, equip, textureMap, outDir, format, helper) {
-		const { slot_id, item_id, renderer, vertices, normals, uv, uv2, boneIndices, boneWeights, is_collection_style, is_skinned_model } = equip;
+		const { slot_id, item_id, renderer, vertices, normals, uv, uv2, boneIndices, boneWeights, is_collection_style, is_skinned_model, attachment_bone, attachment_position } = equip;
 
 		if (!renderer?.m2)
 			return;
@@ -591,6 +591,8 @@ class M2Exporter {
 			uv2: uv2,
 			boneIndices: is_collection_style ? boneIndices : null,
 			boneWeights: is_collection_style ? boneWeights : null,
+			attachment_bone: is_collection_style ? -1 : (attachment_bone ?? -1),
+			attachment_position: is_collection_style ? null : attachment_position,
 			meshes
 		});
 

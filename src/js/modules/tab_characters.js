@@ -2143,6 +2143,8 @@ const export_char_model = async (core) => {
 						uv2: geom.uv2,
 						boneIndices: geom.boneIndices,
 						boneWeights: geom.boneWeights,
+						attachment_bone: geom.attachment_bone,
+						attachment_position: geom.attachment_position,
 						textures,
 						is_collection_style: geom.is_collection_style,
 						is_skinned_model: geom.is_skinned_model === true,

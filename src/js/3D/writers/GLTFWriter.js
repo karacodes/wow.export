@@ -186,6 +186,8 @@ class GLTFWriter {
 	 * @param {Uint8Array} equip.boneWeights - Bone weights
 	 * @param {Array} equip.meshes - Array of {name, triangles, matName}
 	 * @param {number} [equip.attachment_bone] - Bone index for attachment (non-skinned equipment)
+	 * @param {number[]} [equip.attachment_position] - Attachment position in model space (same
+	 * space as the bone pivots); the item node is parented to the bone at this position
 	 */
 	addEquipmentModel(equip) {
 		this.equipment_models.push(equip);
@@ -303,6 +305,10 @@ class GLTFWriter {
 		let idx_bone_weights = -1;
 		const animationBufferMap = new Map();
 
+		// bone index -> the bone's glTF node (the one skin.joints points at), filled below
+		// when the model has bones; equipment nodes parent to these
+		const bone_lookup_map = new Map();
+
 		if (bones.length > 0) {
 			idx_bone_joints = add_buffered_accessor({
 				// Bone joints/indices (Byte)
@@ -345,8 +351,6 @@ class GLTFWriter {
 				name: this.name + '_skeleton',
 				children: []
 			});
-
-			const bone_lookup_map = new Map();
 
 			const animation_buffer_lookup_map = new Map();
 
@@ -1399,13 +1403,25 @@ class GLTFWriter {
 
 				const node = { name: `${equip.name}_${mesh.name}`, mesh: meshIndex };
 
-				// apply skin or parent to attachment bone
-				if (eq_has_skin)
+				// skinned equipment (armour) shares the character's skin; attached equipment
+				// (weapons, helms, shoulders, buckles) becomes a child of its attachment bone,
+				// offset to the attachment point, so it follows the bone in any pose
+				const attach_bone_node = (!eq_has_skin && equip.attachment_bone >= 0) ? bone_lookup_map.get(equip.attachment_bone) : undefined;
+				if (eq_has_skin) {
 					node.skin = 0;
-				else if (equip.attachment_bone !== undefined && equip.attachment_bone >= 0)
-					node.parent_bone = equip.attachment_bone;
+					add_scene_node(node);
+				} else if (attach_bone_node) {
+					const pivot = bones[equip.attachment_bone].pivot;
+					const pos = equip.attachment_position ?? pivot;
+					node.translation = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
 
-				add_scene_node(node);
+					root.nodes.push(node);
+					const node_index = root.nodes.length - 1;
+					attach_bone_node.children ? attach_bone_node.children.push(node_index) : attach_bone_node.children = [node_index];
+				} else {
+					add_scene_node(node);
+				}
+
 				bins.push(buffer);
 			}
 		}

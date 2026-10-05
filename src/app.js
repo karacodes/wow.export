@@ -10,8 +10,10 @@
 // be removed as dead-code during compile.
 BUILD_RELEASE = process.env.BUILD_RELEASE === 'true';
 
-// check for --disable-auto-update flag
-const DISABLE_AUTO_UPDATE = nw.App.argv.includes('--disable-auto-update');
+// check for --disable-auto-update flag, or a build whose manifest opts out of auto-updates
+// (build.json "manifest.autoUpdate": false). A fork built from source must not fetch the
+// official release over itself on every launch.
+const DISABLE_AUTO_UPDATE = nw.App.argv.includes('--disable-auto-update') || nw.App.manifest?.autoUpdate === false;
 
 /**
  * crash() is used to inform the user that the application has exploded.

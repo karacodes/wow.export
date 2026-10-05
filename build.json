@@ -9,6 +9,7 @@
 		"main": "./src/index.html",
 		"chromium-args": "--disable-devtools --disable-raf-throttling --mixed-context --enable-node-worker --disable-logging --password-store=basic",
 		"product_string": "wow.export",
+		"autoUpdate": false,
 		"user-agent": "wow.export (%ver); %osinfo",
 		"window": {
 			"id": "wow-export-main",
