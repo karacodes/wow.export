@@ -361,21 +361,21 @@ class GLTFWriter {
 						// Timestamps are all floats (uints originally), so 4 bytes each.
 						for (let i = 0; i < bone.translation.timestamps.length; i++) {
 							if (i == animationIndex && bone.translation.interpolation < 2) {
-								requiredBufferSize += bone.translation.timestamps[i].length * 4;
+								requiredBufferSize += (bone.translation.timestamps[i]?.length ?? 0) * 4;
 								break;
 							}
 						}
 
 						for (let i = 0; i < bone.rotation.timestamps.length; i++) {
 							if (i == animationIndex && bone.rotation.interpolation < 2) {
-								requiredBufferSize += bone.rotation.timestamps[i].length * 4;
+								requiredBufferSize += (bone.rotation.timestamps[i]?.length ?? 0) * 4;
 								break;
 							}
 						}
 
 						for (let i = 0; i < bone.scale.timestamps.length; i++) {
 							if (i == animationIndex && bone.scale.interpolation < 2) {
-								requiredBufferSize += bone.scale.timestamps[i].length * 4;
+								requiredBufferSize += (bone.scale.timestamps[i]?.length ?? 0) * 4;
 								break;
 							}
 						}
@@ -383,14 +383,14 @@ class GLTFWriter {
 						// Vector3 values
 						for (let i = 0; i < bone.translation.values.length; i++) {
 							if (i == animationIndex && bone.translation.interpolation < 2) {
-								requiredBufferSize += bone.translation.values[i].length * 3 * 4;
+								requiredBufferSize += (bone.translation.values[i]?.length ?? 0) * 3 * 4;
 								break;
 							}
 						}
 
 						for (let i = 0; i < bone.scale.values.length; i++) {
 							if (i == animationIndex && bone.scale.interpolation < 2) {
-								requiredBufferSize += bone.scale.values[i].length * 3 * 4;
+								requiredBufferSize += (bone.scale.values[i]?.length ?? 0) * 3 * 4;
 								break;
 							}
 						}
@@ -398,7 +398,7 @@ class GLTFWriter {
 						// Quaternion values
 						for (let i = 0; i < bone.rotation.values.length; i++) {
 							if (i == animationIndex && bone.rotation.interpolation < 2) {
-								requiredBufferSize += bone.rotation.values[i].length * 4 * 4;
+								requiredBufferSize += (bone.rotation.values[i]?.length ?? 0) * 4 * 4;
 								break;
 							}
 						}
@@ -507,7 +507,7 @@ class GLTFWriter {
 
 					// TIMESTAMPS
 					for (let i = 0; i < bone.translation.timestamps.length; i++) {
-						if (bone.translation.timestamps[i].length == 0)
+						if (!bone.translation.timestamps[i]?.length || !bone.translation.values[i])
 							continue;
 
 						const animName = this.animations[i].id + "-" + this.animations[i].variationIndex;
@@ -638,7 +638,7 @@ class GLTFWriter {
 				if (bone.rotation.interpolation < 2) {
 					// ROTATION
 					for (let i = 0; i < bone.rotation.timestamps.length; i++) {
-						if (bone.rotation.timestamps[i].length == 0)
+						if (!bone.rotation.timestamps[i]?.length || !bone.rotation.values[i])
 							continue;
 
 						const animName = this.animations[i].id + "-" + this.animations[i].variationIndex;
@@ -775,7 +775,7 @@ class GLTFWriter {
 				if (bone.scale.interpolation < 2) {
 					// SCALING
 					for (let i = 0; i < bone.scale.timestamps.length; i++) {
-						if (bone.scale.timestamps[i].length == 0)
+						if (!bone.scale.timestamps[i]?.length || !bone.scale.values[i])
 							continue;
 
 						const animName = this.animations[i].id + "-" + this.animations[i].variationIndex;

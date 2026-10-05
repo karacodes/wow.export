@@ -330,15 +330,28 @@ class M2Exporter {
 							continue;
 
 						// copy decoded keyframe data from child bones into parent bones
+						const anim_count = parent_skel.animations.length;
 						for (let bi = 0; bi < bone_count; bi++) {
 							const pb = parent_skel.bones[bi];
 							const cb = skel.bones[bi];
 
 							for (const track of ['translation', 'rotation', 'scale']) {
-								if (cb[track].timestamps[child_idx]?.length > 0) {
-									pb[track].timestamps[i] = cb[track].timestamps[child_idx];
-									pb[track].values[i] = cb[track].values[child_idx];
-								}
+								if (!(cb[track].timestamps[child_idx]?.length > 0))
+									continue;
+
+								// a parent track that no parent animation touches is an empty array;
+								// assigning index i would leave holes below i that the writer reads as
+								// undefined (mechagnome female: "Cannot read properties of undefined
+								// (reading 'length')"), so give every animation an empty slot first
+								const pt = pb[track];
+								for (let k = pt.timestamps.length; k < anim_count; k++)
+									pt.timestamps[k] = [];
+
+								for (let k = pt.values.length; k < anim_count; k++)
+									pt.values[k] = [];
+
+								pt.timestamps[i] = cb[track].timestamps[child_idx];
+								pt.values[i] = cb[track].values[child_idx];
 							}
 						}
 					}
