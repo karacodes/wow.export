@@ -368,6 +368,7 @@ const makeNewView = () => {
 			{ label: 'Copy to Clipboard (3D Preview)', value: 'CLIPBOARD' },
 		],
 		menuButtonCharacterExport: [
+			{ label: 'Export for printing (OBJ + glTF)', value: 'PRINT' },
 			{ label: 'Export glTF', value: 'GLTF' },
 			{ label: 'Export GLB', value: 'GLB' },
 			{ label: 'Export OBJ (Posed)', value: 'OBJ' },
