@@ -684,6 +684,7 @@ async function update_equipment_models(core) {
 			for (let i = 0; i < attachment_model_count; i++) {
 				const file_data_id = display.models[i];
 				const attachment_id = attachment_ids[i];
+				const model_index = display.modelIndices?.[i] ?? i;
 
 				try {
 					const file = await core.view.casc.getFile(file_data_id);
@@ -691,10 +692,10 @@ async function update_equipment_models(core) {
 					await renderer.load();
 
 					const is_collection_style = false;
+					renderer.item_model_index = model_index;
 
-					// apply textures
-					if (display.textures)
-						await renderer.applyReplaceableTextures({ textures: display.textures });
+					// apply this model's textures (a two-model item has a list per model)
+					await renderer.applyReplaceableTextures({ textures: DBItemModels.getItemTexturesForModel(display, model_index) });
 
 					renderers.push({ renderer, attachment_id, is_collection_style });
 					log.write('Loaded attachment model %d for slot %d attachment %d (item %d)', file_data_id, slot_id, attachment_id, item_id);
@@ -712,12 +713,14 @@ async function update_equipment_models(core) {
 			const renderers = [];
 			for (let i = collection_start_index; i < display.models.length; i++) {
 				const file_data_id = display.models[i];
+				const model_index = display.modelIndices?.[i] ?? i;
 
 				try {
 					const file = await core.view.casc.getFile(file_data_id);
 					// collection models use character skeleton, reactive=false
 					const renderer = new M2RendererGL(file, gl_context, false, false);
 					await renderer.load();
+					renderer.item_model_index = model_index;
 
 					// build bone remap table from character bones
 					if (active_renderer?.bones)
@@ -736,8 +739,7 @@ async function update_equipment_models(core) {
 					}
 
 					// use matching texture for this model index
-					if (display.textures)
-						await renderer.applyReplaceableTextures({ textures: display.textures });
+					await renderer.applyReplaceableTextures({ textures: DBItemModels.getItemTexturesForModel(display, model_index) });
 
 					renderers.push(renderer);
 					log.write('Loaded collection model %d for slot %d (item %d)', file_data_id, slot_id, item_id);
@@ -2065,9 +2067,9 @@ const export_char_model = async (core) => {
 				const replaceable_textures = character_appearance.resolve_replaceable_textures(core.view.chrCustActiveChoices, current_char_component_texture_layout_id);
 
 				for (const geom of char_exporter.get_equipment_geometry(apply_pose)) {
-					// get textures from display info
+					// get this model's textures from display info
 					const display = DBItemModels.getItemDisplay(geom.item_id, char_info?.raceID, char_info?.genderIndex, geom.modifier_id);
-					const textures = display?.textures || [];
+					const textures = DBItemModels.getItemTexturesForModel(display, geom.model_index ?? 0);
 
 					equipment_data.push({
 						slot_id: geom.slot_id,
@@ -2131,7 +2133,7 @@ const export_char_model = async (core) => {
 				// for GLTF, don't apply pose - let the armature handle it
 				for (const geom of char_exporter.get_equipment_geometry(false)) {
 					const display = DBItemModels.getItemDisplay(geom.item_id, char_info?.raceID, char_info?.genderIndex, geom.modifier_id);
-					const textures = display?.textures || [];
+					const textures = DBItemModels.getItemTexturesForModel(display, geom.model_index ?? 0);
 
 					equipment_data.push({
 						slot_id: geom.slot_id,

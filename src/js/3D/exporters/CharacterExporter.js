@@ -218,6 +218,7 @@ class CharacterExporter {
 						slot_id,
 						item_id: entry.item_id,
 						modifier_id: entry.modifier_id,
+						model_index: renderer.item_model_index ?? 0,
 						attachment_id,
 						is_collection_style,
 						renderer,
@@ -246,6 +247,7 @@ class CharacterExporter {
 						slot_id,
 						item_id: entry.item_id,
 						modifier_id: entry.modifier_id,
+						model_index: renderer.item_model_index ?? 0,
 						is_collection_style: true,
 						renderer,
 						...geometry
