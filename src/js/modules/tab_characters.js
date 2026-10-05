@@ -766,16 +766,22 @@ async function update_skinned_models(core) {
 	// resolve active choices -> file_data_id -> set of visible geosets
 	// (a choice may contribute multiple skinned models / geoset groups)
 	const needed = new Map();
+	const needed_choices = new Map(); // file_data_id -> choice ids that use the model (for export names)
 	for (const active_choice of core.view.chrCustActiveChoices) {
 		const skinned_models = DBCharacterCustomization.get_skinned_model_for_choice(active_choice.choiceID);
 		if (skinned_models === undefined)
 			continue;
 
 		for (const skinned of skinned_models) {
-			if (!needed.has(skinned.FileDataID))
+			if (!needed.has(skinned.FileDataID)) {
 				needed.set(skinned.FileDataID, new Set());
+				needed_choices.set(skinned.FileDataID, []);
+			}
 
 			needed.get(skinned.FileDataID).add(skinned.geoset);
+			const choices = needed_choices.get(skinned.FileDataID);
+			if (!choices.includes(active_choice.choiceID))
+				choices.push(active_choice.choiceID);
 		}
 	}
 
@@ -819,6 +825,52 @@ async function update_skinned_models(core) {
 
 		apply_skinned_model_geosets(entry.renderer, geosets);
 		entry.geosets = geosets;
+		entry.choice_ids = needed_choices.get(file_data_id) || [];
+	}
+}
+
+/**
+ * Export name for a customization (skinned) model: Custom_<Option>_<Choice>, from the
+ * first active choice that uses the model, e.g. Custom_Arms_MechanicalArms. Falls back to
+ * Custom_<fileDataID> when the labels are unknown.
+ * @param {Array<number>} choice_ids
+ * @param {number} file_data_id
+ * @returns {string}
+ */
+function customization_piece_name(core, choice_ids, file_data_id) {
+	const clean = (label) => String(label ?? '').replace(/[^A-Za-z0-9]+/g, '');
+	const model_id = core.view.chrCustModelSelection?.[0]?.id;
+	const options = model_id !== undefined ? (DBCharacterCustomization.get_options_for_model(model_id) || []) : [];
+
+	for (const choice_id of choice_ids || []) {
+		const option_id = DBCharacterCustomization.get_choice_option(choice_id);
+		const option = options.find(o => o.id === option_id);
+		const choice = (DBCharacterCustomization.get_choices_for_option(option_id) || []).find(c => c.id === choice_id);
+
+		const option_label = clean(option?.label);
+		const choice_label = clean(choice?.label);
+		if (option_label || choice_label)
+			return 'Custom_' + [option_label, choice_label].filter(Boolean).join('_');
+	}
+
+	return 'Custom_' + file_data_id;
+}
+
+/**
+ * Two customization models can share an option and choice; give the later ones a
+ * fileDataID suffix so OBJ groups and glTF nodes stay distinct.
+ * @param {Array<object>} equipment_data
+ */
+function dedupe_customization_names(equipment_data) {
+	const seen = new Set();
+	for (const entry of equipment_data) {
+		if (!entry.is_skinned_model)
+			continue;
+
+		if (seen.has(entry.name))
+			entry.name = entry.name + '_' + entry.slot_id;
+
+		seen.add(entry.name);
 	}
 }
 
@@ -2010,6 +2062,7 @@ const export_char_model = async (core) => {
 			if (char_exporter.has_equipment()) {
 				const char_info = get_current_race_gender(core);
 				const equipment_data = [];
+				const replaceable_textures = character_appearance.resolve_replaceable_textures(core.view.chrCustActiveChoices, current_char_component_texture_layout_id);
 
 				for (const geom of char_exporter.get_equipment_geometry(apply_pose)) {
 					// get textures from display info
@@ -2024,10 +2077,16 @@ const export_char_model = async (core) => {
 						normals: geom.normals,
 						uv: geom.uv,
 						uv2: geom.uv2,
-						textures
+						textures,
+						// customization models (mechagnome limbs, dracthyr armour...) have no item;
+						// they are named by their choice and textured like the viewer textures them
+						is_skinned_model: geom.is_skinned_model === true,
+						name: geom.is_skinned_model ? customization_piece_name(core, geom.choice_ids, geom.slot_id) : undefined,
+						replaceable_textures: geom.is_skinned_model ? replaceable_textures : undefined
 					});
 				}
 
+				dedupe_customization_names(equipment_data);
 				exporter.setEquipmentModels(equipment_data);
 				log.write('Exporting character with %d equipment models', equipment_data.length);
 			}
@@ -2067,6 +2126,7 @@ const export_char_model = async (core) => {
 			if (char_exporter.has_equipment()) {
 				const char_info = get_current_race_gender(core);
 				const equipment_data = [];
+				const replaceable_textures = character_appearance.resolve_replaceable_textures(core.view.chrCustActiveChoices, current_char_component_texture_layout_id);
 
 				// for GLTF, don't apply pose - let the armature handle it
 				for (const geom of char_exporter.get_equipment_geometry(false)) {
@@ -2086,10 +2146,14 @@ const export_char_model = async (core) => {
 						attachment_bone: geom.attachment_bone,
 						attachment_position: geom.attachment_position,
 						textures,
-						is_collection_style: geom.is_collection_style
+						is_collection_style: geom.is_collection_style,
+						is_skinned_model: geom.is_skinned_model === true,
+						name: geom.is_skinned_model ? customization_piece_name(core, geom.choice_ids, geom.slot_id) : undefined,
+						replaceable_textures: geom.is_skinned_model ? replaceable_textures : undefined
 					});
 				}
 
+				dedupe_customization_names(equipment_data);
 				exporter.setEquipmentModelsGLTF(equipment_data);
 				log.write('Exporting GLTF character with %d equipment models', equipment_data.length);
 			}

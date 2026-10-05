@@ -273,6 +273,8 @@ class CharacterExporter {
 					slot_id: file_data_id,
 					item_id: null,
 					is_collection_style: true,
+					is_skinned_model: true,
+					choice_ids: entry.choice_ids || [],
 					renderer,
 					...geometry
 				});
