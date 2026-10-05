@@ -111,12 +111,14 @@ class CharMaterialRenderer {
 	/**
 	 * Loads a specific texture to a target.
 	 */
-	async setTextureTarget(chrCustomizationMaterial, charComponentTextureSection, chrModelMaterial, chrModelTextureLayer, useAlpha = true, blpOverride = null) {
+	async setTextureTarget(chrCustomizationMaterial, charComponentTextureSection, chrModelMaterial, chrModelTextureLayer, useAlpha = true, blpOverride = null, meta = null) {
 
 		// CharComponentTextureSection: SectionType, X, Y, Width, Height, OverlapSectionMask
 		// ChrModelTextureLayer: TextureType, Layer, Flags, BlendMode, TextureSectionTypeBitMask, TextureSectionTypeBitMask2, ChrModelTextureTargetID[2]
 		// ChrModelMaterial: TextureType, Width, Height, Flags, Unk
 		// ChrCustomizationMaterial: ChrModelTextureTargetID, FileDataID (this is actually MaterialResourceID but we translate it before here)
+		// meta: where the layer came from ({ kind: 'customization' | 'npc' | 'item' | 'tabard', ... }), kept for
+		// the print export, which writes every layer as its own image (see tab_characters.export_texture_layers)
 
 		// For debug purposes
 		let filename = listfile.getByID(chrCustomizationMaterial.FileDataID);
@@ -137,7 +139,9 @@ class CharMaterialRenderer {
 			textureLayer: chrModelTextureLayer,
 			custMaterial: chrCustomizationMaterial,
 			textureID: textureID,
-			filename: filename
+			filename: filename,
+			meta: meta,
+			blp: blpOverride || null
 		});
 
 		await this.update();

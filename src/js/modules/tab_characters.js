@@ -17,6 +17,7 @@ const CharacterExporter = require('../3D/exporters/CharacterExporter');
 const db2 = require('../casc/db2');
 const ExportHelper = require('../casc/export-helper');
 const listfile = require('../casc/listfile');
+const BLPFile = require('../casc/blp');
 const realmlist = require('../casc/realmlist');
 const { wmv_parse } = require('../wmv');
 const { wowhead_parse } = require('../wowhead');
@@ -524,7 +525,8 @@ async function update_textures(core) {
 						FileDataID: texture.fileDataID
 					};
 
-					await chr_material.setTextureTarget(item_material, section, chr_model_material, item_layer, true);
+					await chr_material.setTextureTarget(item_material, section, chr_model_material, item_layer, true, null,
+						{ kind: 'item', slot: Number(slot_id), itemID: item_id });
 				}
 			}
 
@@ -542,15 +544,15 @@ async function update_textures(core) {
 				for (const comp of components) {
 					const bg_fdid = DBGuildTabard.getBackgroundFDID(tier, comp, config.background);
 					if (bg_fdid)
-						tabard_layers.push({ fdid: bg_fdid, section_type: comp, target_id: (TABARD_LAYER * 100) + comp, blend_mode: 1 });
+						tabard_layers.push({ fdid: bg_fdid, section_type: comp, target_id: (TABARD_LAYER * 100) + comp, blend_mode: 1, part: 'background' });
 
 					const emblem_fdid = DBGuildTabard.getEmblemFDID(comp, config.emblem_design, config.emblem_color);
 					if (emblem_fdid)
-						tabard_layers.push({ fdid: emblem_fdid, section_type: comp, target_id: (TABARD_LAYER * 100) + 10 + comp, blend_mode: 1 });
+						tabard_layers.push({ fdid: emblem_fdid, section_type: comp, target_id: (TABARD_LAYER * 100) + 10 + comp, blend_mode: 1, part: 'emblem' });
 
 					const border_fdid = DBGuildTabard.getBorderFDID(tier, comp, config.border_style, config.border_color);
 					if (border_fdid)
-						tabard_layers.push({ fdid: border_fdid, section_type: comp, target_id: (TABARD_LAYER * 100) + 20 + comp, blend_mode: 1 });
+						tabard_layers.push({ fdid: border_fdid, section_type: comp, target_id: (TABARD_LAYER * 100) + 20 + comp, blend_mode: 1, part: 'border' });
 				}
 
 				for (const tl of tabard_layers) {
@@ -582,7 +584,8 @@ async function update_textures(core) {
 
 					// override BlendMode on the layer for guild tabard composition
 					const tabard_texture_layer = { ...layer, BlendMode: tl.blend_mode };
-					await chr_material.setTextureTarget(item_material, section, chr_model_material, tabard_texture_layer, true);
+					await chr_material.setTextureTarget(item_material, section, chr_model_material, tabard_texture_layer, true, null,
+						{ kind: 'tabard', slot: 19, itemID: tabard_item_id, part: tl.part });
 				}
 			}
 		}
@@ -916,7 +919,7 @@ function describe_choices(core, choice_ids) {
  * @param {boolean} apply_pose
  * @returns {object}
  */
-function build_character_meta(core, renderer, model_file_data_id, equipment_data, apply_pose) {
+function build_character_meta(core, renderer, model_file_data_id, equipment_data, apply_pose, texture_layers = null) {
 	const race = core.view.chrCustRaceSelection?.[0];
 	const model = core.view.chrCustModelSelection?.[0];
 	const char_info = get_current_race_gender(core);
@@ -992,7 +995,7 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 		});
 	}
 
-	return {
+	const meta = {
 		formatVersion: 1,
 		space: 'wow: x right, y forward, z up, as in the game files; the OBJ and glTF are Y-up (x, z, -y)',
 		race: race ? { id: race.id, name: race.label } : null,
@@ -1006,6 +1009,12 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 		customization,
 		activeChoices: describe_choices(core, (core.view.chrCustActiveChoices || []).map(c => c.choiceID))
 	};
+
+	// the print export writes every layer the baked data-<type>.png textures are made of (see export_texture_layers)
+	if (texture_layers)
+		meta.textureLayers = texture_layers;
+
+	return meta;
 }
 
 async function apply_skinned_model_textures(renderer, replaceable_textures) {
@@ -2118,7 +2127,7 @@ function update_chr_race_list(core) {
  * @param {Array|null} export_mask - geosets to write when they differ from the viewer's (print export)
  * @returns {Promise<boolean>} true when the file was written and marked
  */
-async function export_char_mesh(core, helper, export_paths, format, file_data_id, file_name, export_mask = null) {
+async function export_char_mesh(core, helper, export_paths, format, file_data_id, file_name, export_mask = null, texture_layers = null) {
 	const ext = format === 'STL' ? '.stl' : '.obj';
 	const mark_file_name = ExportHelper.replaceExtension(file_name, ext);
 	const export_path = ExportHelper.getExportPath(mark_file_name);
@@ -2186,7 +2195,7 @@ async function export_char_mesh(core, helper, export_paths, format, file_data_id
 	}
 
 	// the print-ready sidecar block (character, pose, attachments, item -> group map)
-	exporter.setCharacterMeta(build_character_meta(core, active_renderer, file_data_id, equipment_data, apply_pose));
+	exporter.setCharacterMeta(build_character_meta(core, active_renderer, file_data_id, equipment_data, apply_pose, texture_layers));
 
 	if (format === 'STL') {
 		await exporter.exportAsSTL(export_path, false, helper, []);
@@ -2325,6 +2334,96 @@ function wait_until_idle(core, timeout_ms = 120000, quiet_ms = 500) {
 	});
 }
 
+// ChrModelTextureLayer.BlendMode, as CharMaterialRenderer.update applies them
+const BLEND_MODE_NAMES = ['none', 'blit', 'blit_alphamask', 'add', 'multiply', 'mod2x', 'overlay', 'screen', 'hardlight', 'alpha_straight', 'blend_black', 'mask_greyscale', 'mask_greyscale_color_alpha', 'generate_greyscale', 'colorize', 'infer_alpha', 'unknown_16'];
+
+// CharComponentTextureSections.SectionType (DBItemCharTextures.COMPONENT_SECTION)
+const SECTION_NAMES = ['arm_upper', 'arm_lower', 'hand', 'torso_upper', 'torso_lower', 'leg_upper', 'leg_lower', 'foot', 'accessory'];
+
+/**
+ * Write every layer the baked character textures (data-<type>.png) are composed of as its own
+ * PNG at the size the game stores it, under <out_dir>/layers, and describe them for the
+ * sidecar: which baked texture and which rectangle of it the layer is drawn into, in which
+ * order and blend mode, and where it came from (a customization choice, the baked NPC skin, an
+ * equipped item's slot, a guild tabard part). The baked texture loses which pixels are skin,
+ * cloth or metal; the layers keep that, and an importer scales and places them itself.
+ * Layers the viewer hides (underwear with base clothing off) are left out, as they are in the
+ * bake. A source image shared by several layers is written once.
+ * @param {object} core
+ * @param {string} out_dir - the folder the OBJ goes to
+ * @returns {Promise<Array<object>>} the sidecar records, in draw order per texture type
+ */
+async function export_texture_layers(core, out_dir) {
+	const layers = [];
+	const written = new Map();          // fileDataID -> relative file
+	const include_underwear = core.view.config.chrIncludeBaseClothing;
+
+	for (const [texture_type, material] of chr_materials) {
+		const targets = [...(material.textureTargets || [])].sort((a, b) => a.id - b.id);
+		let index = 0;
+		for (const target of targets) {
+			if (!include_underwear && (target.id == 13 || target.id == 14))
+				continue;
+
+			const meta = target.meta || {};
+			const file_data_id = target.custMaterial?.FileDataID || 0;
+			const source_name = file_data_id ? listfile.getByID(file_data_id) : null;
+			const stem = source_name ? path.basename(source_name, path.extname(source_name)) : (meta.kind || 'layer');
+
+			let file = file_data_id ? written.get(file_data_id) : null;
+			let blp = null;
+			if (!file) {
+				file = util.format('layers/%d-%s-%s.png', texture_type, String(index).padStart(2, '0'), ExportHelper.sanitizeFilename(stem));
+				blp = target.blp || (file_data_id ? new BLPFile(await core.view.casc.getFile(file_data_id)) : null);
+				if (!blp) {
+					log.write('Texture layer %d of type %d has no image to write, skipped', target.id, texture_type);
+					continue;
+				}
+
+				await blp.saveToPNG(path.join(out_dir, file), 0b1111);
+				if (file_data_id)
+					written.set(file_data_id, file);
+			}
+
+			const section = target.section || {};
+			const section_type = section.SectionType ?? null;
+			const blend_mode = target.textureLayer?.BlendMode ?? 0;
+			layers.push({
+				file,
+				textureType: Number(texture_type),
+				bakedTexture: 'data-' + texture_type + '.png',
+				bakedSize: { width: target.material?.Width ?? material.glCanvas?.width ?? null, height: target.material?.Height ?? material.glCanvas?.height ?? null },
+				order: index,
+				targetID: target.id,
+				layer: target.textureLayer?.Layer ?? null,
+				blendMode: blend_mode,
+				blendModeName: BLEND_MODE_NAMES[blend_mode] ?? null,
+				section: { type: section_type, name: section_type === null ? null : (SECTION_NAMES[section_type] ?? null), x: section.X ?? 0, y: section.Y ?? 0, width: section.Width ?? null, height: section.Height ?? null },
+				source: { fileDataID: file_data_id || null, fileName: source_name, width: blp?.width ?? null, height: blp?.height ?? null },
+				kind: meta.kind ?? (target.id === 13 || target.id === 14 ? 'underwear' : 'customization'),
+				slot: meta.slot ?? null,
+				slotName: meta.slot !== undefined ? (get_slot_name(meta.slot) || null) : null,
+				itemID: meta.itemID ?? null,
+				part: meta.part ?? null,
+				optionID: meta.optionID ?? null,
+				choiceID: meta.choiceID ?? null
+			});
+			index++;
+		}
+	}
+
+	// a shared source image was written once: fill in its size on the later records
+	for (const layer of layers) {
+		if (layer.source.width === null && layer.source.fileDataID) {
+			const first = layers.find(l => l.source.fileDataID === layer.source.fileDataID && l.source.width !== null);
+			if (first)
+				layer.source = Object.assign({}, layer.source, { width: first.source.width, height: first.source.height });
+		}
+	}
+
+	return layers;
+}
+
 // the export settings WoW Print's importer expects, forced for the duration of a print
 // export and restored afterwards, so the user's own choices for the other formats stay
 const PRINT_EXPORT_SETTINGS = {
@@ -2394,7 +2493,12 @@ async function export_char_for_printing(core, export_paths, options = {}) {
 	log.write('Exporting character %s for printing (posed OBJ + sidecar, rigged glTF with animations, %d hidden geoset variants included)', file_name, variants?.added ?? 0);
 
 	try {
-		if (!helper.isCancelled() && await export_char_mesh(core, helper, export_paths, 'OBJ', file_data_id, file_name, export_mask))
+		// the texture layers go first: the OBJ's sidecar lists them
+		const out_dir = path.dirname(ExportHelper.getExportPath(file_name));
+		const texture_layers = await export_texture_layers(core, out_dir);
+		log.write('Wrote %d texture layer(s) for printing under %s', texture_layers.length, path.join(out_dir, 'layers'));
+
+		if (!helper.isCancelled() && await export_char_mesh(core, helper, export_paths, 'OBJ', file_data_id, file_name, export_mask, texture_layers))
 			await export_char_gltf(core, helper, export_paths, 'GLTF', file_data_id, file_name, export_mask);
 	} catch (e) {
 		helper.mark(file_name, false, e.message, e.stack);

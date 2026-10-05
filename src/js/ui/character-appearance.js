@@ -107,7 +107,8 @@ async function apply_customization_textures(renderer, active_choices, layout_id,
 				chr_model_material,
 				{ BlendMode: 0, TextureType: texture_type, ChrModelTextureTargetID: [0, 0] },
 				true,
-				baked_npc_blp
+				baked_npc_blp,
+				{ kind: 'npc' }
 			);
 
 			baked_npc_texture_type = texture_type;
@@ -167,7 +168,8 @@ async function apply_customization_textures(renderer, active_choices, layout_id,
 			if (char_component_texture_section === undefined)
 				continue;
 
-			await chr_material.setTextureTarget(chr_cust_mat, char_component_texture_section, chr_model_material, chr_model_texture_layer, true);
+			await chr_material.setTextureTarget(chr_cust_mat, char_component_texture_section, chr_model_material, chr_model_texture_layer, true, null,
+				{ kind: 'customization', optionID: active_choice.optionID ?? null, choiceID: active_choice.choiceID });
 		}
 	}
 
