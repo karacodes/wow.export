@@ -318,7 +318,10 @@ class CharacterExporter {
 			}
 		} else if (!is_collection_style && attachment_id !== undefined && apply_pose) {
 			// attachment models need the attachment transform applied
-			const attach_transform = this.char_renderer?.getAttachmentTransform?.(attachment_id);
+			// without the viewer's model matrix: getBakedGeometry() leaves the body in model
+			// space, so the item must stay in model space too or it comes out turned by the
+			// camera yaw relative to the body
+			const attach_transform = this.char_renderer?.getAttachmentTransform?.(attachment_id, false);
 
 			if (attach_transform) {
 				const transformed = apply_transform_to_geometry(m2.vertices, m2.normals, attach_transform);
