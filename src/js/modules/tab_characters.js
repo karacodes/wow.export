@@ -2115,9 +2115,10 @@ function update_chr_race_list(core) {
  * @param {string} format - 'OBJ' or 'STL'
  * @param {number} file_data_id
  * @param {string} file_name
+ * @param {Array|null} export_mask - geosets to write when they differ from the viewer's (print export)
  * @returns {Promise<boolean>} true when the file was written and marked
  */
-async function export_char_mesh(core, helper, export_paths, format, file_data_id, file_name) {
+async function export_char_mesh(core, helper, export_paths, format, file_data_id, file_name, export_mask = null) {
 	const ext = format === 'STL' ? '.stl' : '.obj';
 	const mark_file_name = ExportHelper.replaceExtension(file_name, ext);
 	const export_path = ExportHelper.getExportPath(mark_file_name);
@@ -2129,7 +2130,7 @@ async function export_char_mesh(core, helper, export_paths, format, file_data_id
 	for (const [chr_model_texture_target, chr_material] of chr_materials)
 		exporter.addURITexture(chr_model_texture_target, chr_material.getURI());
 
-	exporter.setGeosetMask(core.view.chrCustGeosets);
+	exporter.setGeosetMask(core.view.chrCustGeosets, export_mask);
 
 	const apply_pose = core.view.config.chrExportApplyPose;
 	if (apply_pose) {
@@ -2210,9 +2211,10 @@ async function export_char_mesh(core, helper, export_paths, format, file_data_id
  * @param {string} format - 'GLTF' or 'GLB'
  * @param {number} file_data_id
  * @param {string} file_name
+ * @param {Array|null} export_mask - geosets to write when they differ from the viewer's (print export)
  * @returns {Promise<boolean>} true when the file was written and marked
  */
-async function export_char_gltf(core, helper, export_paths, format, file_data_id, file_name) {
+async function export_char_gltf(core, helper, export_paths, format, file_data_id, file_name, export_mask = null) {
 	const casc = core.view.casc;
 	const data = await casc.getFile(file_data_id);
 	const mark_file_name = ExportHelper.replaceExtension(file_name, '.gltf');
@@ -2222,7 +2224,7 @@ async function export_char_gltf(core, helper, export_paths, format, file_data_id
 	for (const [chr_model_texture_target, chr_material] of chr_materials)
 		exporter.addURITexture(chr_model_texture_target, chr_material.getURI());
 
-	exporter.setGeosetMask(core.view.chrCustGeosets);
+	exporter.setGeosetMask(core.view.chrCustGeosets, export_mask);
 
 	// collect equipment models for GLTF export (with bone data for rigging)
 	const char_exporter = new CharacterExporter(
@@ -2291,6 +2293,28 @@ const PRINT_EXPORT_SETTINGS = {
 };
 
 /**
+ * The geoset mask of a print export: the viewer's choices plus every variant of the groups
+ * listed in config.chrPrintAllVariantGroups (hair, facial hair, ears, eyebrows and noses by
+ * default), so the add-on can offer those choices at import instead of needing a re-export.
+ * The sidecar keeps the viewer's state as `enabled` and marks the extra ones `exported`.
+ * @param {object} core
+ * @returns {{mask: Array, added: number}|null} null when the viewer already shows everything
+ */
+function print_export_geoset_mask(core) {
+	const groups = new Set((core.view.config.chrPrintAllVariantGroups || []).map(Number));
+	let added = 0;
+	const mask = (core.view.chrCustGeosets || []).map(row => {
+		const checked = row.checked || groups.has(Math.floor(row.id / 100));
+		if (checked && !row.checked)
+			added++;
+
+		return { id: row.id, label: row.label, checked };
+	});
+
+	return added > 0 ? { mask, added } : null;
+}
+
+/**
  * One click for WoW Print: the posed OBJ with its sidecar and the rigged glTF with
  * animations, written from the same scene state into the same folder, with the
  * settings the add-on's importer expects (see PRINT_EXPORT_SETTINGS).
@@ -2316,11 +2340,13 @@ async function export_char_for_printing(core, export_paths) {
 
 	const file_data_id = active_model;
 	const file_name = listfile.getByID(file_data_id);
-	log.write('Exporting character %s for printing (posed OBJ + sidecar, rigged glTF with animations)', file_name);
+	const variants = print_export_geoset_mask(core);
+	const export_mask = variants?.mask ?? null;
+	log.write('Exporting character %s for printing (posed OBJ + sidecar, rigged glTF with animations, %d hidden geoset variants included)', file_name, variants?.added ?? 0);
 
 	try {
-		if (!helper.isCancelled() && await export_char_mesh(core, helper, export_paths, 'OBJ', file_data_id, file_name))
-			await export_char_gltf(core, helper, export_paths, 'GLTF', file_data_id, file_name);
+		if (!helper.isCancelled() && await export_char_mesh(core, helper, export_paths, 'OBJ', file_data_id, file_name, export_mask))
+			await export_char_gltf(core, helper, export_paths, 'GLTF', file_data_id, file_name, export_mask);
 	} catch (e) {
 		helper.mark(file_name, false, e.message, e.stack);
 	} finally {
@@ -2700,7 +2726,7 @@ module.exports = {
 								<input type="checkbox" v-model="$core.view.config.chrExportApplyPose"/>
 								<span>Apply pose</span>
 							</label>
-							<span class="chr-print-export-hint" v-show="$core.view.config.exportCharacterFormat === 'PRINT'" title="Writes the posed OBJ with its sidecar and the rigged glTF with animations from the current scene, overwriting earlier files of the same name. Pose, animations, bone prefix, textures and alpha are forced on and UV2 off for this export only.">Posed OBJ + sidecar and rigged glTF with animations, settings fixed for WoW Print</span>
+							<span class="chr-print-export-hint" v-show="$core.view.config.exportCharacterFormat === 'PRINT'" title="Writes the posed OBJ with its sidecar and the rigged glTF with animations from the current scene, overwriting earlier files of the same name. Pose, animations, bone prefix, textures and alpha are forced on and UV2 off for this export only. Every hair, facial hair, ear, eyebrow and nose variant is written too (marked off in the sidecar) so the choice can be made at import.">Posed OBJ + sidecar and rigged glTF with animations, all head variants, settings fixed for WoW Print</span>
 							<component :is="$components.MenuButton" :options="$core.view.menuButtonCharacterExport" :default="$core.view.config.exportCharacterFormat" @change="$core.view.config.exportCharacterFormat = $event" :disabled="$core.view.chrModelLoading" @click="export_character"></component>
 						</div>
 						<div class="character-export-menu" v-show="$core.view.chrExportMenu == 'textures'">

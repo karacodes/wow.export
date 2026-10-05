@@ -86,6 +86,7 @@
 	"chrShowBackground": false,
 	"chrBackgroundColor": "#000000",
 	"chrExportApplyPose": true,
+	"chrPrintAllVariantGroups": [0, 1, 2, 3, 7, 34, 41],
 	"modelsExportApplyPose": true,
 	"modelsExportWithBonePrefix": true,
 	"soundPlayerVolume": 0.7,

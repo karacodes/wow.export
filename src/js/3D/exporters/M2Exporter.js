@@ -36,11 +36,37 @@ class M2Exporter {
 	}
 
 	/**
-	 * Set the mask array used for geoset control.
+	 * Set the mask array used for geoset control. `exportMask`, when given, decides which
+	 * geosets go into the geometry while `mask` stays what the viewer shows (the sidecar
+	 * reports both): the print export writes every variant of some groups this way.
 	 * @param {Array} mask
+	 * @param {Array|null} exportMask
 	 */
-	setGeosetMask(mask) {
+	setGeosetMask(mask, exportMask = null) {
 		this.geosetMask = mask;
+		this.geosetExportMask = exportMask;
+	}
+
+	/**
+	 * Whether the viewer shows submesh `index` (true without a mask).
+	 * @param {number} index
+	 * @returns {boolean}
+	 */
+	isGeosetEnabled(index) {
+		return !this.geosetMask || this.geosetMask[index]?.checked === true;
+	}
+
+	/**
+	 * Whether submesh `index` is written to the geometry file: the export mask when one is
+	 * set, else the viewer's mask.
+	 * @param {number} index
+	 * @returns {boolean}
+	 */
+	isGeosetExported(index) {
+		if (this.geosetExportMask)
+			return this.geosetExportMask[index]?.checked === true;
+
+		return this.isGeosetEnabled(index);
 	}
 
 	/**
@@ -91,8 +117,19 @@ class M2Exporter {
 	 * @private
 	 * @returns {object}
 	 */
-	_characterMetaWithMeshes() {
+	_characterMetaWithMeshes(skin = null) {
 		const meta = Object.assign({}, this.characterMeta);
+
+		// geosets written although the viewer had them off (print export: every variant of
+		// the configured groups), so the importer knows which groups it must pick from
+		if (skin && this.geosetExportMask) {
+			meta.exportedDisabledGeosets = [];
+			for (let i = 0, n = skin.subMeshes.length; i < n; i++) {
+				if (this.isGeosetExported(i) && !this.isGeosetEnabled(i))
+					meta.exportedDisabledGeosets.push({ id: skin.subMeshes[i].submeshID, name: GeosetMapper.getGeosetName(i, skin.subMeshes[i].submeshID) });
+			}
+		}
+
 		for (const key of ['equipment', 'customization']) {
 			if (!Array.isArray(meta[key]))
 				continue;
@@ -430,7 +467,7 @@ class M2Exporter {
 
 		for (let mI = 0, mC = skin.subMeshes.length; mI < mC; mI++) {
 			// Skip geosets that are not enabled.
-			if (this.geosetMask && !this.geosetMask[mI]?.checked)
+			if (!this.isGeosetExported(mI))
 				continue;
 
 			const mesh = skin.subMeshes[mI];
@@ -918,14 +955,12 @@ class M2Exporter {
 		if (exportMeta) {
 			const json = metaJson = new JSONWriter(ExportHelper.replaceExtension(out, '.json'));
 
-			// Clone the submesh array and add a custom 'enabled' property
-			// to indicate to external readers which submeshes are not included
-			// in the actual geometry file.
+			// Clone the submesh array and add custom 'enabled' (shown in the viewer) and
+			// 'exported' (written to the geometry file) properties for external readers;
+			// they differ only for the print export, which writes variants the viewer hides.
 			const subMeshes = Array(skin.subMeshes.length);
-			for (let i = 0, n = subMeshes.length; i < n; i++) {
-				const subMeshEnabled = !this.geosetMask || this.geosetMask[i].checked;
-				subMeshes[i] = Object.assign({ enabled: subMeshEnabled }, skin.subMeshes[i]);
-			}
+			for (let i = 0, n = subMeshes.length; i < n; i++)
+				subMeshes[i] = Object.assign({ enabled: this.isGeosetEnabled(i), exported: this.isGeosetExported(i) }, skin.subMeshes[i]);
 
 			// Clone M2 textures array and expand the entries to include internal
 			// and external paths/names for external convenience. GH-208
@@ -972,7 +1007,7 @@ class M2Exporter {
 		// Faces
 		for (let mI = 0, mC = skin.subMeshes.length; mI < mC; mI++) {
 			// Skip geosets that are not enabled.
-			if (this.geosetMask && !this.geosetMask[mI].checked)
+			if (!this.isGeosetExported(mI))
 				continue;
 
 			const mesh = skin.subMeshes[mI];
@@ -1011,7 +1046,7 @@ class M2Exporter {
 
 		if (metaJson) {
 			if (this.characterMeta)
-				metaJson.addProperty('character', this._characterMetaWithMeshes());
+				metaJson.addProperty('character', this._characterMetaWithMeshes(skin));
 
 			await metaJson.write(config.overwriteFiles);
 			fileManifest?.push({ type: 'META', fileDataID: this.fileDataID, file: metaJson.out });
@@ -1067,7 +1102,7 @@ class M2Exporter {
 		// faces
 		for (let mI = 0, mC = skin.subMeshes.length; mI < mC; mI++) {
 			// skip geosets that are not enabled
-			if (this.geosetMask && !this.geosetMask[mI].checked)
+			if (!this.isGeosetExported(mI))
 				continue;
 
 			const mesh = skin.subMeshes[mI];
