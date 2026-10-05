@@ -77,6 +77,24 @@ class M2Exporter {
 	}
 
 	/**
+	 * Next mesh index for an equipment base name. An item with several models (a belt's
+	 * buckle and band, a two-piece helm) exports each model in its own call, so the
+	 * counter lives on the exporter: the second model continues the numbering instead of
+	 * writing a second `Waist_Item183015_0`.
+	 * @private
+	 * @param {string} base_name
+	 * @returns {number}
+	 */
+	_nextEquipmentMeshIndex(base_name) {
+		if (!this._equipmentMeshCounters)
+			this._equipmentMeshCounters = new Map();
+
+		const next = this._equipmentMeshCounters.get(base_name) ?? 0;
+		this._equipmentMeshCounters.set(base_name, next + 1);
+		return next;
+	}
+
+	/**
 	 * Export the textures for this M2 model (for GLB mode, returns buffers instead of writing).
 	 * @param {string} out
 	 * @param {boolean} raw
@@ -396,6 +414,7 @@ class M2Exporter {
 
 		// add equipment models for GLTF export
 		if (this.equipmentModelsGLTF && this.equipmentModelsGLTF.length > 0) {
+			this._equipmentMeshCounters = new Map();
 			for (const equip of this.equipmentModelsGLTF) {
 				await this._addEquipmentToGLTF(gltf, equip, textureMap, outDir, format, helper);
 			}
@@ -539,7 +558,6 @@ class M2Exporter {
 
 		// build meshes for this equipment
 		const meshes = [];
-		let mesh_idx = 0;
 
 		for (let mI = 0; mI < skin.subMeshes.length; mI++) {
 			// check visibility via draw_calls if available
@@ -576,7 +594,7 @@ class M2Exporter {
 			}
 
 			meshes.push({
-				name: `${mesh_idx++}`,
+				name: `${this._nextEquipmentMeshIndex(base_name)}`,
 				triangles,
 				matName
 			});
@@ -691,7 +709,6 @@ class M2Exporter {
 		// add equipment meshes
 		const slot_name = require('../../wow/EquipmentSlots').get_slot_name(slot_id) || `Slot${slot_id}`;
 		const base_name = is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
-		let mesh_idx = 0;
 
 		for (let mI = 0; mI < skin.subMeshes.length; mI++) {
 			// check visibility via draw_calls if available
@@ -727,7 +744,7 @@ class M2Exporter {
 				}
 			}
 
-			const meshName = `${base_name}_${mesh_idx++}`;
+			const meshName = `${base_name}_${this._nextEquipmentMeshIndex(base_name)}`;
 			obj.addMesh(meshName, verts, matName);
 		}
 
@@ -757,7 +774,6 @@ class M2Exporter {
 		// add equipment meshes
 		const slot_name = require('../../wow/EquipmentSlots').get_slot_name(slot_id) || `Slot${slot_id}`;
 		const base_name = equip.is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
-		let mesh_idx = 0;
 
 		for (let mI = 0; mI < skin.subMeshes.length; mI++) {
 			// check visibility via draw_calls if available
@@ -769,7 +785,7 @@ class M2Exporter {
 			for (let vI = 0; vI < mesh.triangleCount; vI++)
 				verts[vI] = skin.indices[skin.triangles[mesh.triangleStart + vI]];
 
-			const meshName = `${base_name}_${mesh_idx++}`;
+			const meshName = `${base_name}_${this._nextEquipmentMeshIndex(base_name)}`;
 			stl.addMesh(meshName, verts);
 		}
 
@@ -939,6 +955,7 @@ class M2Exporter {
 
 		// export equipment models if present
 		if (this.equipmentModels && this.equipmentModels.length > 0) {
+			this._equipmentMeshCounters = new Map();
 			for (const equip of this.equipmentModels) {
 				if (helper.isCancelled())
 					return;
@@ -1010,6 +1027,7 @@ class M2Exporter {
 
 		// export equipment models if present
 		if (this.equipmentModels && this.equipmentModels.length > 0) {
+			this._equipmentMeshCounters = new Map();
 			for (const equip of this.equipmentModels) {
 				if (helper.isCancelled())
 					return;
