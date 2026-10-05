@@ -2280,6 +2280,51 @@ async function export_char_gltf(core, helper, export_paths, format, file_data_id
 	return true;
 }
 
+// the asynchronous work the watchers start (model load, appearance refresh) in flight, so
+// the batch export can tell when a loaded character is complete before exporting it
+let pending_work = 0;
+
+/**
+ * Count a watcher's asynchronous work until it settles.
+ * @param {Promise} promise
+ * @returns {Promise}
+ */
+function track(promise) {
+	pending_work++;
+	return Promise.resolve(promise).finally(() => pending_work--);
+}
+
+/**
+ * Resolve once no tracked work is in flight and no model is loading for `quiet_ms` in a row
+ * (a watcher may start the next step a tick after the last one ended), or after `timeout_ms`.
+ * @param {object} core
+ * @param {number} timeout_ms
+ * @param {number} quiet_ms
+ * @returns {Promise<boolean>} false when the wait timed out
+ */
+function wait_until_idle(core, timeout_ms = 120000, quiet_ms = 500) {
+	return new Promise(resolve => {
+		const started = Date.now();
+		let quiet_since = null;
+		const poll = () => {
+			const idle = pending_work === 0 && !core.view.chrModelLoading;
+			if (!idle)
+				quiet_since = null;
+			else if (quiet_since === null)
+				quiet_since = Date.now();
+
+			if (idle && Date.now() - quiet_since >= quiet_ms)
+				return resolve(true);
+
+			if (Date.now() - started >= timeout_ms)
+				return resolve(false);
+
+			setTimeout(poll, 100);
+		};
+		poll();
+	});
+}
+
 // the export settings WoW Print's importer expects, forced for the duration of a print
 // export and restored afterwards, so the user's own choices for the other formats stay
 const PRINT_EXPORT_SETTINGS = {
@@ -2320,12 +2365,15 @@ function print_export_geoset_mask(core) {
  * settings the add-on's importer expects (see PRINT_EXPORT_SETTINGS).
  * @param {object} core
  * @param {object|null} export_paths
+ * @param {object} [options]
+ * @param {string} [options.sub_dir] - folder under the model's export folder (the batch export keeps each saved character apart)
+ * @returns {Promise<boolean>} true when both files were written
  */
-async function export_char_for_printing(core, export_paths) {
+async function export_char_for_printing(core, export_paths, options = {}) {
 	if (!active_renderer?.m2) {
 		core.setToast('error', 'no character model loaded to export', null, -1);
 		export_paths?.close();
-		return;
+		return false;
 	}
 
 	const config = core.view.config;
@@ -2339,7 +2387,8 @@ async function export_char_for_printing(core, export_paths) {
 	helper.start();
 
 	const file_data_id = active_model;
-	const file_name = listfile.getByID(file_data_id);
+	const model_file_name = listfile.getByID(file_data_id);
+	const file_name = options.sub_dir ? path.join(path.dirname(model_file_name), options.sub_dir, path.basename(model_file_name)) : model_file_name;
 	const variants = print_export_geoset_mask(core);
 	const export_mask = variants?.mask ?? null;
 	log.write('Exporting character %s for printing (posed OBJ + sidecar, rigged glTF with animations, %d hidden geoset variants included)', file_name, variants?.added ?? 0);
@@ -2355,6 +2404,64 @@ async function export_char_for_printing(core, export_paths) {
 
 	helper.finish();
 	export_paths?.close();
+	return helper.succeeded === helper.count;
+}
+
+/**
+ * Load every saved character (My Characters) in turn and run the print export on each,
+ * into its own folder named after the character under the model's export folder. One
+ * unattended run exports the whole collection, and a run on a new build is a regression
+ * check: the log and the final toast say which characters failed.
+ * @param {object} core
+ */
+async function export_all_saved_for_printing(core) {
+	await load_saved_characters(core);
+	const characters = [...core.view.chrSavedCharacters];
+	if (characters.length === 0) {
+		core.setToast('info', 'no saved characters to export', null, 4000);
+		return;
+	}
+
+	if (core.view.isBusy) {
+		core.setToast('error', 'another export is running, wait for it to finish', null, 4000);
+		return;
+	}
+
+	core.view.chrSavedCharactersScreen = false;
+	log.write('Print batch: exporting %d saved characters', characters.length);
+
+	const failed = [];
+	for (let i = 0; i < characters.length; i++) {
+		const character = characters[i];
+		core.setToast('progress', util.format('Print batch %d / %d: loading %s', i + 1, characters.length, character.name), null, -1, false);
+		log.write('Print batch %d/%d: %s', i + 1, characters.length, character.name);
+
+		await load_character(core, character);
+		if (!await wait_until_idle(core)) {
+			log.write('Print batch: %s did not finish loading in time, skipped', character.name);
+			failed.push(character.name);
+			continue;
+		}
+
+		if (!active_renderer?.m2) {
+			log.write('Print batch: no model loaded for %s, skipped', character.name);
+			failed.push(character.name);
+			continue;
+		}
+
+		const sub_dir = ExportHelper.sanitizeFilename(character.name).trim() || character.id;
+		if (!await export_char_for_printing(core, core.openLastExportStream(), { sub_dir }))
+			failed.push(character.name);
+	}
+
+	const done = characters.length - failed.length;
+	log.write('Print batch finished: %d of %d exported%s', done, characters.length, failed.length ? ', failed: ' + failed.join(', ') : '');
+	const export_dir = ExportHelper.getExportPath('character');
+	const toast_opt = { 'View in Explorer': () => nw.Shell.openItem(export_dir) };
+	if (failed.length === 0)
+		core.setToast('success', util.format('Print batch: exported all %d saved characters.', characters.length), toast_opt, -1);
+	else
+		core.setToast('error', util.format('Print batch: %d of %d exported, failed: %s', done, characters.length, failed.join(', ')), toast_opt, -1);
 }
 
 const export_char_model = async (core) => {
@@ -2541,6 +2648,7 @@ module.exports = {
 					<div class="saved-characters-gutter-left">
 						<input type="button" value="Save Character" class="ui-button" @click="open_save_prompt"/>
 						<input type="button" value="Import Character" class="ui-button" @click="import_json_to_saved"/>
+						<input type="button" value="Export All for Printing" class="ui-button" title="Load every saved character in turn and run Export for printing on it, each into its own folder named after the character" :disabled="$core.view.isBusy > 0" @click="export_all_for_printing"/>
 					</div>
 					<input type="button" value="Back" class="ui-button" @click="$core.view.chrSavedCharactersScreen = false"/>
 				</div>
@@ -2933,6 +3041,10 @@ module.exports = {
 			export_char_model(this.$core);
 		},
 
+		export_all_for_printing() {
+			export_all_saved_for_printing(this.$core);
+		},
+
 		async remove_baked_npc_texture() {
 			this.$core.view.chrCustBakedNPCTexture = null;
 			await refresh_character_appearance(this.$core);
@@ -3302,16 +3414,16 @@ module.exports = {
 
 		// simplified watchers - no isBusy checks, proper async handling
 		watcher_cleanup_funcs.push(
-			this.$core.view.$watch('config.chrIncludeBaseClothing', () => refresh_character_appearance(this.$core)),
-			this.$core.view.$watch('config.chrIsDemonHunter', () => refresh_character_appearance(this.$core)),
-			this.$core.view.$watch('chrCustRaceSelection', () => update_chr_model_list(this.$core)),
-			this.$core.view.$watch('chrCustModelSelection', () => update_model_selection(this.$core), { deep: true }),
+			this.$core.view.$watch('config.chrIncludeBaseClothing', () => track(refresh_character_appearance(this.$core))),
+			this.$core.view.$watch('config.chrIsDemonHunter', () => track(refresh_character_appearance(this.$core))),
+			this.$core.view.$watch('chrCustRaceSelection', () => track(update_chr_model_list(this.$core))),
+			this.$core.view.$watch('chrCustModelSelection', () => track(update_model_selection(this.$core)), { deep: true }),
 			this.$core.view.$watch('chrCustOptionSelection', () => update_customization_type(this.$core), { deep: true }),
 			this.$core.view.$watch('chrCustChoiceSelection', () => update_customization_choice(this.$core), { deep: true }),
-			this.$core.view.$watch('chrCustActiveChoices', () => refresh_character_appearance(this.$core), { deep: true }),
-			this.$core.view.$watch('chrEquippedItems', () => refresh_character_appearance(this.$core), { deep: true }),
-			this.$core.view.$watch('chrEquippedItemSkins', () => refresh_character_appearance(this.$core), { deep: true }),
-			this.$core.view.$watch('chrGuildTabardConfig', () => refresh_character_appearance(this.$core), { deep: true }),
+			this.$core.view.$watch('chrCustActiveChoices', () => track(refresh_character_appearance(this.$core)), { deep: true }),
+			this.$core.view.$watch('chrEquippedItems', () => track(refresh_character_appearance(this.$core)), { deep: true }),
+			this.$core.view.$watch('chrEquippedItemSkins', () => track(refresh_character_appearance(this.$core)), { deep: true }),
+			this.$core.view.$watch('chrGuildTabardConfig', () => track(refresh_character_appearance(this.$core)), { deep: true }),
 			this.$core.view.$watch('chrModelViewerAnimSelection', async selected_animation_id => {
 				if (!active_renderer || !active_renderer.playAnimation || this.$core.view.chrModelViewerAnims.length === 0)
 					return;
