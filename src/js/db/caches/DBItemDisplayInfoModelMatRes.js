@@ -7,6 +7,11 @@ const db2 = require('../../casc/db2');
 const DBTextureFileData = require('./DBTextureFileData');
 
 const itemDisplays = new Map();
+
+// ItemDisplayInfoID -> Array indexed by ModelIndex -> texture fileDataIDs for that model,
+// in TextureType order. ItemDisplayInfo pairs ModelResourcesID[n] with the rows whose
+// ModelIndex is n, so a two-model item (a belt's buckle and band) has two lists.
+const itemDisplayModelTextures = new Map();
 let is_initialized = false;
 
 /**
@@ -32,6 +37,29 @@ const initializeIDIMMR = async () => {
 				itemDisplays.get(itemdisplayinfoid).push(...textureFileDataIDs);
 			else
 				itemDisplays.set(itemdisplayinfoid, [...textureFileDataIDs]);
+
+			let by_model = itemDisplayModelTextures.get(itemdisplayinfoid);
+			if (by_model === undefined) {
+				by_model = [];
+				itemDisplayModelTextures.set(itemdisplayinfoid, by_model);
+			}
+
+			const model_index = row.ModelIndex ?? 0;
+			if (by_model[model_index] === undefined)
+				by_model[model_index] = [];
+
+			by_model[model_index].push({ textureType: row.TextureType ?? 0, textureFileDataIDs });
+		}
+	}
+
+	// flatten each model's entries in TextureType order
+	for (const by_model of itemDisplayModelTextures.values()) {
+		for (let i = 0; i < by_model.length; i++) {
+			if (by_model[i] === undefined)
+				continue;
+
+			by_model[i].sort((a, b) => a.textureType - b.textureType);
+			by_model[i] = by_model[i].flatMap(entry => entry.textureFileDataIDs);
 		}
 	}
 
@@ -53,8 +81,19 @@ const getItemDisplayIdTextureFileIds = (ItemDisplayInfoId) => {
 	return itemDisplays.get(ItemDisplayInfoId);
 };
 
+/**
+ * Get texture file id's for one model of an item display.
+ * @param {number} ItemDisplayInfoId
+ * @param {number} modelIndex - index into ItemDisplayInfo.ModelResourcesID
+ * @returns {number[]|undefined}
+ */
+const getItemDisplayModelTextureFileIds = (ItemDisplayInfoId, modelIndex) => {
+	return itemDisplayModelTextures.get(ItemDisplayInfoId)?.[modelIndex];
+};
+
 module.exports = {
 	initialize: initializeIDIMMR,
 	ensureInitialized: ensure_initialized,
 	getItemDisplayIdTextureFileIds,
+	getItemDisplayModelTextureFileIds,
 };

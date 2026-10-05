@@ -85,6 +85,10 @@ const initialize = async () => {
 				texture_file_data_ids.push(...itemDisplayTexFileDataIDs);
 			}
 
+			// and per model: model n of the item uses the textures with ModelIndex n
+			const textures_by_model = model_res_ids.map((_, model_index) =>
+				DBItemDisplayInfoModelMatRes.getItemDisplayModelTextureFileIds(display_id, model_index) || []);
+
 			// geoset groups for character model and attachment/collection models
 			const geoset_group = row.GeosetGroup || [];
 			const attachment_geoset_group = row.AttachmentGeosetGroup || [];
@@ -92,6 +96,7 @@ const initialize = async () => {
 			display_to_data.set(display_id, {
 				modelOptions: model_options,
 				textures: texture_file_data_ids,
+				texturesByModel: textures_by_model,
 				geosetGroup: geoset_group,
 				attachmentGeosetGroup: attachment_geoset_group
 			});
@@ -160,7 +165,9 @@ const get_item_models = (item_id, modifier_id) => {
  * @param {number} [gender_index] - 0=male, 1=female for filtering
  * @param {number} [modifier_id] - item appearance modifier (skin index)
  * @param {'left'|'right'} [shoulder_position] - for shoulder items, return only the specified side
- * @returns {{ID: number, textures: number[], models: number[], geosetGroup: number[], attachmentGeosetGroup: number[]}|null}
+ * @returns {{ID: number, textures: number[], texturesByModel: number[][], models: number[], modelIndices: number[], geosetGroup: number[], attachmentGeosetGroup: number[]}|null}
+ * `modelIndices[i]` is the ModelResourcesID slot `models[i]` came from, the index to use
+ * with `texturesByModel` (see `getItemTexturesForModel`).
  */
 const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_position) => {
 	const display_id = resolve_display_id(item_id, modifier_id);
@@ -173,6 +180,7 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 
 	// filter models by race/gender
 	const models = [];
+	const model_indices = [];
 
 	// check if this is a shoulder-type item (2 model options with identical content)
 	// shoulders share the same model pool but use PositionIndex to distinguish left/right
@@ -187,30 +195,42 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 		const candidates = DBComponentModelFileData.getModelsForRaceGenderByPosition(options, race_id, gender_index);
 
 		if (shoulder_position === 'left') {
-			if (candidates.left)
+			if (candidates.left) {
 				models.push(candidates.left);
+				model_indices.push(0);
+			}
 		} else if (shoulder_position === 'right') {
-			if (candidates.right)
+			if (candidates.right) {
 				models.push(candidates.right);
+				model_indices.push(1);
+			}
 		} else {
-			if (candidates.left)
+			if (candidates.left) {
 				models.push(candidates.left);
+				model_indices.push(0);
+			}
 
-			if (candidates.right)
+			if (candidates.right) {
 				models.push(candidates.right);
+				model_indices.push(1);
+			}
 		}
 	} else {
 		// standard logic for non-shoulder items
-		for (const options of data.modelOptions) {
+		for (let model_index = 0; model_index < data.modelOptions.length; model_index++) {
+			const options = data.modelOptions[model_index];
 			if (options.length === 0)
 				continue;
 
 			if (race_id !== undefined && gender_index !== undefined) {
 				const best = DBComponentModelFileData.getModelForRaceGender(options, race_id, gender_index);
-				if (best)
+				if (best) {
 					models.push(best);
+					model_indices.push(model_index);
+				}
 			} else {
 				models.push(options[0]);
+				model_indices.push(model_index);
 			}
 		}
 	}
@@ -218,10 +238,30 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 	return {
 		ID: display_id,
 		models: models,
+		modelIndices: model_indices,
 		textures: data.textures,
+		texturesByModel: data.texturesByModel,
 		geosetGroup: data.geosetGroup,
 		attachmentGeosetGroup: data.attachmentGeosetGroup
 	};
+};
+
+/**
+ * Textures for one model of an item display: the ModelIndex list when the display has
+ * one for that model, else the whole list (single-model items, old data).
+ * @param {object|null} display - result of get_item_display
+ * @param {number} model_index - entry of display.modelIndices for the model
+ * @returns {number[]}
+ */
+const get_item_textures_for_model = (display, model_index) => {
+	if (!display)
+		return [];
+
+	const for_model = display.texturesByModel?.[model_index];
+	if (for_model && for_model.length > 0)
+		return for_model;
+
+	return display.textures || [];
 };
 
 /**
@@ -305,6 +345,7 @@ module.exports = {
 	ensureInitialized: ensure_initialized,
 	getItemModels: get_item_models,
 	getItemDisplay: get_item_display,
+	getItemTexturesForModel: get_item_textures_for_model,
 	getDisplayId: get_display_id,
 	getDisplayData: get_display_data,
 	getItemModifiers: get_item_modifiers
