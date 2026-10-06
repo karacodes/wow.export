@@ -6,6 +6,7 @@
 const log = require('../../log');
 const db2 = require('../../casc/db2');
 const DBCreatures = require('./DBCreatures');
+const { filter_for_class } = require('../../ui/customization-class');
 
 const tfd_map = new Map();
 const choice_to_geoset = new Map();
@@ -17,6 +18,8 @@ const options_by_chr_model = new Map();
 const option_to_choices = new Map();
 const choice_to_option = new Map();
 const default_options = new Array();
+const req_class_mask = new Map(); // ChrCustomizationReq id -> ClassMask (0 = no class requirement)
+const option_class_mask = new Map(); // option id -> its ClassMask
 
 const chr_model_id_to_file_data_id = new Map();
 const chr_model_id_to_texture_layout_id = new Map();
@@ -110,6 +113,14 @@ const _initialize = async () => {
 		}
 	}
 
+	// customization requirements: only the class mask matters to the viewer (demon hunter horns etc.)
+	try {
+		for (const [req_id, req_row] of await db2.ChrCustomizationReq.getAllRows())
+			req_class_mask.set(req_id, req_row.ClassMask ?? 0);
+	} catch (e) {
+		log.write('ChrCustomizationReq not loaded, customization will not be gated by class: %s', e.message);
+	}
+
 	// customization options + choices
 	const options_by_model = new Map();
 	const choices_by_option = new Map();
@@ -154,7 +165,9 @@ const _initialize = async () => {
 			else
 				option_name = 'Option ' + chr_customization_option_row.OrderIndex;
 
-			options_by_chr_model.get(chr_customization_option_row.ChrModelID).push({ id: chr_customization_option_id, label: option_name });
+			const class_mask = req_class_mask.get(chr_customization_option_row.Requirement) ?? 0;
+			option_class_mask.set(chr_customization_option_id, class_mask);
+			options_by_chr_model.get(chr_customization_option_row.ChrModelID).push({ id: chr_customization_option_id, label: option_name, class_mask });
 
 			const option_choices = choices_by_option.get(chr_customization_option_id);
 			if (option_choices) {
@@ -170,7 +183,8 @@ const _initialize = async () => {
 						id: chr_customization_choice_id,
 						label: name,
 						swatch_color_0,
-						swatch_color_1
+						swatch_color_1,
+						class_mask: req_class_mask.get(chr_customization_choice_row.ChrCustomizationReqID) ?? 0
 					});
 				}
 			}
@@ -233,11 +247,22 @@ const _initialize = async () => {
 // getters
 const get_model_file_data_id = (model_id) => chr_model_id_to_file_data_id.get(model_id);
 const get_texture_layout_id = (model_id) => chr_model_id_to_texture_layout_id.get(model_id);
-const get_options_for_model = (model_id) => options_by_chr_model.get(model_id);
-const get_choices_for_option = (option_id) => option_to_choices.get(option_id);
+// with a class id (customization-class.js) the lists hold only what that class may use
+const get_options_for_model = (model_id, class_id) => class_id === undefined ? options_by_chr_model.get(model_id) : filter_for_class(options_by_chr_model.get(model_id), class_id);
+const get_choices_for_option = (option_id, class_id) => class_id === undefined ? option_to_choices.get(option_id) : filter_for_class(option_to_choices.get(option_id), class_id);
 const get_choice_option = (choice_id) => choice_to_option.get(choice_id);
+const get_option_class_mask = (option_id) => option_class_mask.get(option_id) ?? 0;
 const get_default_options = () => default_options;
-const get_option_to_choices_map = () => option_to_choices;
+const get_option_to_choices_map = (class_id) => {
+	if (class_id === undefined)
+		return option_to_choices;
+
+	const filtered = new Map();
+	for (const [option_id, choices] of option_to_choices)
+		filtered.set(option_id, filter_for_class(choices, class_id));
+
+	return filtered;
+};
 
 const get_chr_model_id = (race_id, sex) => {
 	const models = chr_race_x_chr_model_map.get(race_id);
@@ -302,6 +327,7 @@ module.exports = {
 	get_options_for_model,
 	get_choices_for_option,
 	get_choice_option,
+	get_option_class_mask,
 	get_default_options,
 	get_option_to_choices_map,
 
