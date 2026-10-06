@@ -126,7 +126,7 @@ class M2Exporter {
 			meta.exportedDisabledGeosets = [];
 			for (let i = 0, n = skin.subMeshes.length; i < n; i++) {
 				if (this.isGeosetExported(i) && !this.isGeosetEnabled(i))
-					meta.exportedDisabledGeosets.push({ id: skin.subMeshes[i].submeshID, name: GeosetMapper.getGeosetName(i, skin.subMeshes[i].submeshID) });
+					meta.exportedDisabledGeosets.push({ id: skin.subMeshes[i].submeshID, name: GeosetMapper.getGeosetName(i, skin.subMeshes[i].submeshID), choice: meta.geosetChoices?.[skin.subMeshes[i].submeshID]?.choice ?? null });
 			}
 		}
 
@@ -958,9 +958,17 @@ class M2Exporter {
 			// Clone the submesh array and add custom 'enabled' (shown in the viewer) and
 			// 'exported' (written to the geometry file) properties for external readers;
 			// they differ only for the print export, which writes variants the viewer hides.
+			// A character export also names each variant after its customization choice
+			// ('name': Hair12 = "Mohawk") from the character block's geosetChoices.
+			const geosetChoices = this.characterMeta?.geosetChoices || null;
 			const subMeshes = Array(skin.subMeshes.length);
-			for (let i = 0, n = subMeshes.length; i < n; i++)
-				subMeshes[i] = Object.assign({ enabled: this.isGeosetEnabled(i), exported: this.isGeosetExported(i) }, skin.subMeshes[i]);
+			for (let i = 0, n = subMeshes.length; i < n; i++) {
+				const extra = { enabled: this.isGeosetEnabled(i), exported: this.isGeosetExported(i) };
+				if (geosetChoices)
+					extra.name = geosetChoices[skin.subMeshes[i].submeshID]?.choice ?? null;
+
+				subMeshes[i] = Object.assign(extra, skin.subMeshes[i]);
+			}
 
 			// Clone M2 textures array and expand the entries to include internal
 			// and external paths/names for external convenience. GH-208
