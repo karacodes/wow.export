@@ -33,6 +33,7 @@ const DBItemList = require('../db/caches/DBItemList');
 const DBGuildTabard = require('../db/caches/DBGuildTabard');
 const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization');
 const character_appearance = require('../ui/character-appearance');
+const { CLASS_DEMON_HUNTER, CLASS_OTHER, is_allowed_for_class } = require('../ui/customization-class');
 const AnimMapper = require('../3D/AnimMapper');
 const BoneMapper = require('../3D/BoneMapper');
 
@@ -126,6 +127,28 @@ let default_model_file_data_id = 0;
 let watcher_cleanup_funcs = [];
 let is_importing = false;
 let auto_select_in_progress = false;
+
+/** The class the viewer dresses and customizes for: Demon Hunter or Other (any other class). */
+function selected_class_id(core) {
+	return core.view.config.chrIsDemonHunter ? CLASS_DEMON_HUNTER : CLASS_OTHER;
+}
+
+/**
+ * Whether imported choices ({ optionID, choiceID }) use something only a demon hunter may
+ * (horns, a blindfold, a tattoo): a saved or imported character with them is a demon hunter.
+ */
+function choices_need_demon_hunter(choices) {
+	for (const { optionID, choiceID } of choices) {
+		if (!is_allowed_for_class(DBCharacterCustomization.get_option_class_mask(optionID), CLASS_OTHER))
+			return true;
+
+		const choice = DBCharacterCustomization.get_choices_for_option(optionID)?.find(c => c.id === choiceID);
+		if (choice && !is_allowed_for_class(choice.class_mask, CLASS_OTHER))
+			return true;
+	}
+
+	return false;
+}
 
 // thumbnail camera presets by race_id, then gender (0=male, 1=female)
 // format: [cam_x, cam_y, cam_z, tgt_x, tgt_y, tgt_z, rot]
@@ -492,7 +515,7 @@ async function update_textures(core) {
 					continue;
 
 				const modifier_id = item_skins?.[slot_id];
-				const class_id = core.view.config.chrIsDemonHunter ? 12 : 0;
+				const class_id = selected_class_id(core);
 				const item_textures = DBItemCharTextures.getItemTextures(item_id, char_info?.raceID, char_info?.genderIndex, modifier_id, class_id);
 				if (!item_textures)
 					continue;
@@ -1253,7 +1276,13 @@ async function update_model_selection(core) {
 
 	log.write('Model selection changed to ID %d', selected.id);
 
-	const available_options = DBCharacterCustomization.get_options_for_model(selected.id);
+	// an import that uses demon-hunter-only choices is a demon hunter: set the Class switch so
+	// they stay listed (the Battle.net import sets it from the armory before this)
+	if (state.chrImportChoices.length > 0 && state.chrImportTargetModelID === selected.id && !state.config.chrIsDemonHunter && choices_need_demon_hunter(state.chrImportChoices))
+		state.config.chrIsDemonHunter = true;
+
+	const class_id = selected_class_id(core);
+	const available_options = DBCharacterCustomization.get_options_for_model(selected.id, class_id);
 	if (available_options === undefined)
 		return;
 
@@ -1268,7 +1297,7 @@ async function update_model_selection(core) {
 	state.chrCustOptionSelection.splice(0, state.chrCustOptionSelection.length);
 	state.chrCustActiveChoices.splice(0, state.chrCustActiveChoices.length);
 
-	const option_to_choices = DBCharacterCustomization.get_option_to_choices_map();
+	const option_to_choices = DBCharacterCustomization.get_option_to_choices_map(class_id);
 	const default_option_ids = DBCharacterCustomization.get_default_options();
 
 	// use imported choices if available and we're loading the target model, otherwise use defaults
@@ -1303,7 +1332,7 @@ function update_customization_type(core) {
 
 	const selected = selection[0];
 
-	const available_choices = DBCharacterCustomization.get_choices_for_option(selected.id);
+	const available_choices = DBCharacterCustomization.get_choices_for_option(selected.id, selected_class_id(core));
 	if (available_choices === undefined)
 		return;
 
@@ -1382,14 +1411,69 @@ function auto_select_texture_gating(core, choice_id) {
 function randomize_customization(core) {
 	const state = core.view;
 	const options = state.chrCustOptions;
+	const class_id = selected_class_id(core);
 
 	for (const option of options) {
-		const choices = DBCharacterCustomization.get_choices_for_option(option.id);
+		const choices = DBCharacterCustomization.get_choices_for_option(option.id, class_id);
 		if (choices && choices.length > 0) {
 			const random_choice = choices[Math.floor(Math.random() * choices.length)];
 			update_choice_for_option(core, option.id, random_choice.id);
 		}
 	}
+}
+
+/**
+ * The Class setting changed: list only the options and choices the class may use, drop the
+ * active choices it may not (a demon hunter's horns on an Other), give newly listed options
+ * their default, then redraw. Without a model nothing is listed yet.
+ */
+async function apply_class_selection(core) {
+	const state = core.view;
+	if (is_importing)
+		return; // the import builds the lists for the class it set
+
+	const selected = state.chrCustModelSelection[0];
+	if (selected === undefined)
+		return refresh_character_appearance(core);
+
+	const class_id = selected_class_id(core);
+	const available_options = DBCharacterCustomization.get_options_for_model(selected.id, class_id);
+	if (available_options === undefined)
+		return refresh_character_appearance(core);
+
+	const option_to_choices = DBCharacterCustomization.get_option_to_choices_map(class_id);
+	const default_option_ids = DBCharacterCustomization.get_default_options();
+	const listed = new Set(available_options.map(option => option.id));
+	const was_listed = new Set(state.chrCustOptions.map(option => option.id));
+	const allowed = (active) => listed.has(active.optionID) && option_to_choices.get(active.optionID)?.some(choice => choice.id === active.choiceID);
+
+	// the lists already are the class's (the model load built them for it): only the class-specific
+	// item textures are left to redraw
+	if (listed.size === was_listed.size && [...listed].every(id => was_listed.has(id)) && state.chrCustActiveChoices.every(allowed))
+		return refresh_character_appearance(core);
+
+	// drop what the class may not use: a hidden option, or a choice of a listed option that is gated
+	for (let i = state.chrCustActiveChoices.length - 1; i >= 0; i--) {
+		if (!allowed(state.chrCustActiveChoices[i]))
+			state.chrCustActiveChoices.splice(i, 1);
+	}
+
+	// options the class change brings in start at their default, as on model load
+	for (const option of available_options) {
+		const choices = option_to_choices.get(option.id);
+		if (!was_listed.has(option.id) && default_option_ids.includes(option.id) && choices && choices.length > 0 && !state.chrCustActiveChoices.some(active => active.optionID === option.id))
+			state.chrCustActiveChoices.push({ optionID: option.id, choiceID: choices[0].id });
+	}
+
+	state.chrCustOptions.splice(0, state.chrCustOptions.length, ...available_options);
+	state.optionToChoices = option_to_choices;
+
+	if (state.chrCustOptionSelection.length > 0 && !listed.has(state.chrCustOptionSelection[0].id))
+		state.chrCustOptionSelection.splice(0, state.chrCustOptionSelection.length, ...available_options.slice(0, 1));
+	else
+		update_customization_type(core);
+
+	return refresh_character_appearance(core);
 }
 
 //endregion
@@ -1514,6 +1598,11 @@ async function apply_import_data(core, data, source) {
 
 	if (source === 'bnet') {
 		race_id = data.playable_race.id;
+
+		// the armory says which class the character is: set the Class switch to match so a demon
+		// hunter keeps her horns and anyone else gets the list for Other
+		if (data.playable_class?.id !== undefined)
+			core.view.config.chrIsDemonHunter = data.playable_class.id === CLASS_DEMON_HUNTER;
 
 		// pandaren with faction -> use neutral
 		if (race_id == 25 || race_id == 26)
@@ -3554,7 +3643,7 @@ module.exports = {
 		// simplified watchers - no isBusy checks, proper async handling
 		watcher_cleanup_funcs.push(
 			this.$core.view.$watch('config.chrIncludeBaseClothing', () => track(refresh_character_appearance(this.$core))),
-			this.$core.view.$watch('config.chrIsDemonHunter', () => track(refresh_character_appearance(this.$core))),
+			this.$core.view.$watch('config.chrIsDemonHunter', () => track(apply_class_selection(this.$core))),
 			this.$core.view.$watch('chrCustRaceSelection', () => track(update_chr_model_list(this.$core))),
 			this.$core.view.$watch('chrCustModelSelection', () => track(update_model_selection(this.$core)), { deep: true }),
 			this.$core.view.$watch('chrCustOptionSelection', () => update_customization_type(this.$core), { deep: true }),
