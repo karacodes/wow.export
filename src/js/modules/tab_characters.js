@@ -332,6 +332,11 @@ function update_geosets(core) {
 	// steps 1+2: reset to defaults and apply customization geosets
 	character_appearance.apply_customization_geosets(geosets, core.view.chrCustActiveChoices);
 
+	// the game's name for each variant (Hair12 = "Mohawk") beside its geoset label
+	const choice_labels = geoset_choice_labels(core);
+	for (const geoset of geosets)
+		geoset.name = choice_labels[geoset.id]?.choice ?? null;
+
 	// step 2.5: hide base-model geosets for groups supplied by skinned models
 	// (e.g. mechagnome arms/legs live in both the base model and the collection
 	// model; without this the base limb renders alongside the upgrade -> dupes)
@@ -892,6 +897,33 @@ const ATTACHMENT_NAMES = Object.fromEntries(Object.entries(ATTACHMENT_ID).map(([
  * @param {Array<number>} choice_ids
  * @returns {Array<{optionID: number|null, option: string|null, choiceID: number, choice: string|null}>}
  */
+/**
+ * The customization choice behind each geoset of the current model, by geoset id: every
+ * choice of every option, not only the active ones, so a hidden variant the print export
+ * writes (Hair12, Ears2) is named too. {geoset id: { optionID, option, choiceID, choice }}.
+ * The game names them: Hair Style "Mohawk", Ears "Pointed". Empty when no model is loaded.
+ * @param {object} core
+ * @returns {object}
+ */
+function geoset_choice_labels(core) {
+	const out = {};
+	const model_id = core.view.chrCustModelSelection?.[0]?.id;
+	if (model_id === undefined)
+		return out;
+
+	for (const option of DBCharacterCustomization.get_options_for_model(model_id) || []) {
+		for (const choice of DBCharacterCustomization.get_choices_for_option(option.id) || []) {
+			const geoset_id = DBCharacterCustomization.get_choice_geoset_id(choice.id);
+			if (geoset_id === undefined || geoset_id === 0 || out[geoset_id] !== undefined)
+				continue;
+
+			out[geoset_id] = { optionID: option.id, option: option.label ?? null, choiceID: choice.id, choice: choice.label ?? null };
+		}
+	}
+
+	return out;
+}
+
 function describe_choices(core, choice_ids) {
 	const model_id = core.view.chrCustModelSelection?.[0]?.id;
 	const options = model_id !== undefined ? (DBCharacterCustomization.get_options_for_model(model_id) || []) : [];
@@ -1007,7 +1039,10 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 		attachments,
 		equipment,
 		customization,
-		activeChoices: describe_choices(core, (core.view.chrCustActiveChoices || []).map(c => c.choiceID))
+		activeChoices: describe_choices(core, (core.view.chrCustActiveChoices || []).map(c => c.choiceID)),
+		// the customization choice behind each geoset variant, by geoset id (every choice of
+		// the model, so the hidden variants the print export writes are named too)
+		geosetChoices: geoset_choice_labels(core)
 	};
 
 	// the print export writes every layer the baked data-<type>.png textures are made of (see export_texture_layers)
@@ -2902,7 +2937,7 @@ module.exports = {
 					<template v-else>
 						<div class="geoset-checkboxes">
 							<label v-for="geoset in $core.view.chrCustGeosets" :key="geoset.id" class="geoset-checkbox-item" v-show="geoset.id !== 0">
-								<span class="geoset-prefix">{{ geoset.label }}:</span>
+								<span class="geoset-prefix">{{ geoset.label }}<template v-if="geoset.name"> &middot; {{ geoset.name }}</template>:</span>
 								<input type="checkbox" v-model="geoset.checked"/>
 							</label>
 						</div>
