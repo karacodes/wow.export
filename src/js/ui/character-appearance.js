@@ -23,9 +23,16 @@ function apply_customization_geosets(geosets, active_choices) {
 		return;
 
 	// reset geosets to model defaults
+	// ears (group 7): 701 is the earless stub a helmet switches to, 702 the ears themselves. A race
+	// whose Ears are not a customization option (gnome, dwarf, human...) has nothing below that
+	// turns 702 on, so it is the default whenever the model has it; equipment still overrides it.
+	const has_ears = geosets.some(geoset => geoset.id === 702);
 	for (const geoset of geosets) {
 		const id_str = geoset.id.toString();
-		const is_default = (geoset.id === 0 || id_str.endsWith('01') || id_str.startsWith('32'));
+		let is_default = (geoset.id === 0 || id_str.endsWith('01') || id_str.startsWith('32'));
+		if (has_ears && (geoset.id === 701 || geoset.id === 702))
+			is_default = geoset.id === 702;
+
 		const is_hidden_default = id_str.startsWith('17') || id_str.startsWith('35');
 
 		geoset.checked = is_default && !is_hidden_default;
