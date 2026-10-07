@@ -18,6 +18,7 @@ const STLWriter = require('../writers/STLWriter');
 const JSONWriter = require('../writers/JSONWriter');
 const GLTFWriter = require('../writers/GLTFWriter');
 const GeosetMapper = require('../GeosetMapper');
+const { with_embedded_textures } = require('../../wow/equipment-textures');
 const ExportHelper = require('../../casc/export-helper');
 const BufferWrapper = require('../../buffer');
 
@@ -574,6 +575,8 @@ class M2Exporter {
 		let skinnedSlots = null;
 		if (is_skinned_model)
 			({ textures, slotIndex: skinnedSlots } = this._skinnedModelTextures(m2, equip.replaceable_textures));
+		else
+			textures = with_embedded_textures(textures, m2.textures, m2.textureTypes); // the model's own (type 0) textures too
 
 		const base_name = is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
 
@@ -722,6 +725,8 @@ class M2Exporter {
 		let skinnedSlots = null;
 		if (is_skinned_model)
 			({ textures, slotIndex: skinnedSlots } = this._skinnedModelTextures(m2, equip.replaceable_textures));
+		else
+			textures = with_embedded_textures(textures, m2.textures, m2.textureTypes); // the model's own (type 0) textures too
 
 		// build UV arrays
 		const uvArrays = [];
