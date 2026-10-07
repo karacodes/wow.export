@@ -19,6 +19,7 @@ const JSONWriter = require('../writers/JSONWriter');
 const GLTFWriter = require('../writers/GLTFWriter');
 const GeosetMapper = require('../GeosetMapper');
 const { with_embedded_textures } = require('../../wow/equipment-textures');
+const { section_blend_mode, blend_modes_by_mesh } = require('../../wow/item-mesh-blend');
 const ExportHelper = require('../../casc/export-helper');
 const BufferWrapper = require('../../buffer');
 
@@ -138,7 +139,9 @@ class M2Exporter {
 			meta[key] = meta[key].map(entry => {
 				const { equipmentIndex, ...rest } = entry;
 				const equip = equipmentIndex !== undefined ? this.equipmentModels?.[equipmentIndex] : undefined;
-				return Object.assign(rest, { meshes: equip?.mesh_names ? [...equip.mesh_names] : [] });
+				const meshes = equip?.mesh_names ? [...equip.mesh_names] : [];
+				// the game's blend mode per mesh: WoW Print leaves additive glow cards out of the print
+				return Object.assign(rest, { meshes, meshBlendModes: blend_modes_by_mesh(meshes, equip?.mesh_blend_modes) });
 			});
 		}
 
@@ -796,6 +799,7 @@ class M2Exporter {
 		const slot_name = require('../../wow/EquipmentSlots').get_slot_name(slot_id) || `Slot${slot_id}`;
 		const base_name = is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
 		equip.mesh_names = [];
+		equip.mesh_blend_modes = [];
 
 		for (let mI = 0; mI < skin.subMeshes.length; mI++) {
 			// check visibility via draw_calls if available
@@ -834,6 +838,7 @@ class M2Exporter {
 			const meshName = `${base_name}_${this._nextEquipmentMeshIndex(base_name)}`;
 			obj.addMesh(meshName, verts, matName);
 			equip.mesh_names.push(meshName);
+			equip.mesh_blend_modes.push(section_blend_mode(m2, skin, mI));
 		}
 
 		log.write('Added equipment meshes for slot %d (item %d)', slot_id, item_id);
