@@ -13,7 +13,11 @@ BUILD_RELEASE = process.env.BUILD_RELEASE === 'true';
 // check for --disable-auto-update flag, or a build whose manifest opts out of auto-updates
 // (build.json "manifest.autoUpdate": false). A fork built from source must not fetch the
 // official release over itself on every launch.
-const DISABLE_AUTO_UPDATE = nw.App.argv.includes('--disable-auto-update') || nw.App.manifest?.autoUpdate === false;
+// --print-export-all, --print-export=<name>, --print-import=<region>/<realm>/<name>: export
+// characters for WoW Print with no one at the window, then quit (src/js/print-batch-runner.js)
+const PRINT_BATCH = require('./js/wow/print-batch').parse_print_batch_args(nw.App.argv);
+
+const DISABLE_AUTO_UPDATE = nw.App.argv.includes('--disable-auto-update') || nw.App.manifest?.autoUpdate === false || PRINT_BATCH !== null;
 
 /**
  * crash() is used to inform the user that the application has exploded.
@@ -719,4 +723,7 @@ document.addEventListener('click', function(e) {
 
 	// Set source select as the currently active interface screen.
 	modules.source_select.setActive();
+
+	if (PRINT_BATCH)
+		require('./js/print-batch-runner').run(core, modules, PRINT_BATCH);
 })();

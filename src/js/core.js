@@ -259,6 +259,8 @@ const makeNewView = () => {
 		chrImportChrName: '', // Character import, character name input.
 		chrSavedCharacterName: null, // Name of the saved character loaded into (or just saved from) the viewer; the print export's sidecar names the character after it.
 		chrArmoryCharacterName: null, // Name the viewer's character was imported from the armory under (sidecar fallback when it was not saved).
+		chrCharacterRealm: null, // Armory realm slug of the viewer's character (import or save), or null; the print batch exports to character/<realm>/<name>.
+		printBatchInstall: null, // The recent local install the unattended print batch asks the source screen to open.
 		chrImportRegions: [],
 		chrImportSelectedRegion: '',
 		chrImportRealms: [],
