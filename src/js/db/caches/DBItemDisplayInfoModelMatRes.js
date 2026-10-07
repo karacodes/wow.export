@@ -12,6 +12,10 @@ const itemDisplays = new Map();
 // in TextureType order. ItemDisplayInfo pairs ModelResourcesID[n] with the rows whose
 // ModelIndex is n, so a two-model item (a belt's buckle and band) has two lists.
 const itemDisplayModelTextures = new Map();
+
+// ItemDisplayInfoID -> { [TextureType]: texture fileDataIDs }, for the replaceable
+// texture types a character model wears (2 = cape)
+const itemDisplayTexturesByType = new Map();
 let is_initialized = false;
 
 /**
@@ -49,6 +53,18 @@ const initializeIDIMMR = async () => {
 				by_model[model_index] = [];
 
 			by_model[model_index].push({ textureType: row.TextureType ?? 0, textureFileDataIDs });
+
+			let by_type = itemDisplayTexturesByType.get(itemdisplayinfoid);
+			if (by_type === undefined) {
+				by_type = {};
+				itemDisplayTexturesByType.set(itemdisplayinfoid, by_type);
+			}
+
+			const texture_type = row.TextureType ?? 0;
+			if (by_type[texture_type] === undefined)
+				by_type[texture_type] = [];
+
+			by_type[texture_type].push(...textureFileDataIDs);
 		}
 	}
 
@@ -91,9 +107,19 @@ const getItemDisplayModelTextureFileIds = (ItemDisplayInfoId, modelIndex) => {
 	return itemDisplayModelTextures.get(ItemDisplayInfoId)?.[modelIndex];
 };
 
+/**
+ * Texture file ids of an item display grouped by TextureType (2 = cape).
+ * @param {number} ItemDisplayInfoId
+ * @returns {Object<number, number[]>|undefined}
+ */
+const getItemDisplayTextureFileIdsByType = (ItemDisplayInfoId) => {
+	return itemDisplayTexturesByType.get(ItemDisplayInfoId);
+};
+
 module.exports = {
 	initialize: initializeIDIMMR,
 	ensureInitialized: ensure_initialized,
 	getItemDisplayIdTextureFileIds,
 	getItemDisplayModelTextureFileIds,
+	getItemDisplayTextureFileIdsByType
 };

@@ -35,6 +35,7 @@ const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization'
 const character_appearance = require('../ui/character-appearance');
 const { CLASS_DEMON_HUNTER, CLASS_OTHER, is_allowed_for_class } = require('../ui/customization-class');
 const { character_name: pick_character_name } = require('../ui/character-name');
+const { BACK_SLOT, CAPE_TEXTURE_TYPE, cape_texture_for_display, character_variant_textures } = require('../wow/cape-texture');
 const AnimMapper = require('../3D/AnimMapper');
 const BoneMapper = require('../3D/BoneMapper');
 
@@ -448,6 +449,45 @@ function hide_skinned_model_base_geosets(core, geosets) {
 }
 
 /**
+ * The cape texture of the equipped Back item, or 0: the file the character model's
+ * cloak geoset wears as replaceable texture type 2 (see src/js/wow/cape-texture.js).
+ * @param {object} core
+ * @returns {number}
+ */
+function resolve_cape_texture(core) {
+	const item_id = core.view.chrEquippedItems?.[BACK_SLOT];
+	if (!item_id)
+		return 0;
+
+	const char_info = get_current_race_gender(core);
+	const modifier_id = core.view.chrEquippedItemSkins?.[BACK_SLOT];
+	const display = DBItemModels.getItemDisplay(item_id, char_info?.raceID, char_info?.genderIndex, modifier_id);
+	return cape_texture_for_display(display);
+}
+
+/**
+ * Bind (or drop) the cape texture on the character renderer. Runs after the
+ * composited body textures are uploaded, which never touch type 2.
+ * @param {object} core
+ */
+async function apply_cape_texture(core) {
+	if (!active_renderer)
+		return;
+
+	const file_data_id = resolve_cape_texture(core);
+	if (active_renderer.cape_texture_file_data_id === file_data_id)
+		return;
+
+	if (file_data_id > 0)
+		await active_renderer.overrideTextureType(CAPE_TEXTURE_TYPE, file_data_id);
+	else
+		active_renderer.clearTextureType?.(CAPE_TEXTURE_TYPE);
+
+	active_renderer.cape_texture_file_data_id = file_data_id;
+	log.write('Cape texture %d bound to the character model', file_data_id);
+}
+
+/**
  * Updates all character textures based on baked NPC texture, customization, and equipment.
  * Order: 1) Reset materials, 2) Baked NPC texture, 3) Customization, 4) Equipment, 5) Upload to GPU
  */
@@ -622,6 +662,9 @@ async function update_textures(core) {
 
 	// step 5: upload all textures to GPU
 	await character_appearance.upload_textures_to_gpu(active_renderer, chr_materials);
+
+	// step 6: the Back item's cape texture on the body's cloak geoset
+	await apply_cape_texture(core);
 }
 
 /**
@@ -1077,6 +1120,17 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 	// the print export writes every layer the baked data-<type>.png textures are made of (see export_texture_layers)
 	if (texture_layers)
 		meta.textureLayers = texture_layers;
+
+	// the Back item's cape texture on the body's cloak geoset (replaceable texture type 2)
+	const cape_file_data_id = resolve_cape_texture(core);
+	if (cape_file_data_id > 0) {
+		meta.cape = {
+			itemID: core.view.chrEquippedItems?.[BACK_SLOT] ?? null,
+			textureType: CAPE_TEXTURE_TYPE,
+			fileDataID: cape_file_data_id,
+			fileName: listfile.getByID(cape_file_data_id) ?? null
+		};
+	}
 
 	return meta;
 }
@@ -2281,7 +2335,8 @@ async function export_char_mesh(core, helper, export_paths, format, file_data_id
 
 	const casc = core.view.casc;
 	const data = await casc.getFile(file_data_id);
-	const exporter = new M2Exporter(data, [], file_data_id);
+	// the cape texture rides along as variant texture type 2 (the body's cloak geoset)
+	const exporter = new M2Exporter(data, character_variant_textures(resolve_cape_texture(core)), file_data_id);
 
 	for (const [chr_model_texture_target, chr_material] of chr_materials)
 		exporter.addURITexture(chr_model_texture_target, chr_material.getURI());
@@ -2375,7 +2430,8 @@ async function export_char_gltf(core, helper, export_paths, format, file_data_id
 	const data = await casc.getFile(file_data_id);
 	const mark_file_name = ExportHelper.replaceExtension(file_name, '.gltf');
 	const export_path = ExportHelper.getExportPath(mark_file_name);
-	const exporter = new M2Exporter(data, [], file_data_id);
+	// the cape texture rides along as variant texture type 2 (the body's cloak geoset)
+	const exporter = new M2Exporter(data, character_variant_textures(resolve_cape_texture(core)), file_data_id);
 
 	for (const [chr_model_texture_target, chr_material] of chr_materials)
 		exporter.addURITexture(chr_model_texture_target, chr_material.getURI());

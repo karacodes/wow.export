@@ -1663,6 +1663,28 @@ class M2RendererGL {
 	}
 
 	/**
+	 * Drop the override of a replaceable texture type so its slots draw the default
+	 * texture again (a cloak taken off).
+	 * @param {number} type
+	 */
+	clearTextureType(type) {
+		const textureTypes = this.m2?.textureTypes;
+		if (!textureTypes)
+			return;
+
+		for (let i = 0; i < textureTypes.length; i++) {
+			if (textureTypes[i] !== type)
+				continue;
+
+			const old = this.textures.get(i);
+			if (old)
+				old.dispose();
+
+			this.textures.delete(i);
+		}
+	}
+
+	/**
 	 * Override texture with canvas
 	 * @param {number} type
 	 * @param {HTMLCanvasElement} canvas
