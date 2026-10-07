@@ -9,6 +9,7 @@ const db2 = require('../../casc/db2');
 const DBModelFileData = require('./DBModelFileData');
 const DBItemDisplayInfoModelMatRes = require('./DBItemDisplayInfoModelMatRes');
 const DBComponentModelFileData = require('./DBComponentModelFileData');
+const DBChrRaces = require('./DBChrRaces');
 
 // maps ItemID -> Map<ItemAppearanceModifierID, ItemDisplayInfoID>
 const item_to_display_ids = new Map();
@@ -31,6 +32,7 @@ const initialize = async () => {
 
 		await DBModelFileData.initializeModelFileData();
 		await DBComponentModelFileData.initialize();
+		await DBChrRaces.initialize();
 		await DBItemDisplayInfoModelMatRes.ensureInitialized();
 
 		// build item -> modifier -> appearance -> display chain
@@ -178,9 +180,11 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 	if (!data)
 		return null;
 
-	// filter models by race/gender
+	// filter models by race/gender; an allied race without its own variant takes its
+	// fallback race's (a mechagnome wears the gnome cape, not the human one)
 	const models = [];
 	const model_indices = [];
+	const fallback = DBChrRaces.getModelFallbackChain(race_id, gender_index);
 
 	// check if this is a shoulder-type item (2 model options with identical content)
 	// shoulders share the same model pool but use PositionIndex to distinguish left/right
@@ -192,7 +196,7 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 
 	if (is_shoulder_style && race_id !== undefined && gender_index !== undefined) {
 		const options = data.modelOptions[0];
-		const candidates = DBComponentModelFileData.getModelsForRaceGenderByPosition(options, race_id, gender_index);
+		const candidates = DBComponentModelFileData.getModelsForRaceGenderByPosition(options, race_id, gender_index, fallback);
 
 		if (shoulder_position === 'left') {
 			if (candidates.left) {
@@ -300,6 +304,7 @@ const get_display_data = (display_id, race_id, gender_index) => {
 		return null;
 
 	const models = [];
+	const fallback = DBChrRaces.getModelFallbackChain(race_id, gender_index);
 
 	const is_shoulder_style = data.modelOptions.length === 2 &&
 		data.modelOptions[0].length > 0 &&
@@ -309,7 +314,7 @@ const get_display_data = (display_id, race_id, gender_index) => {
 
 	if (is_shoulder_style && race_id !== undefined && gender_index !== undefined) {
 		const options = data.modelOptions[0];
-		const candidates = DBComponentModelFileData.getModelsForRaceGenderByPosition(options, race_id, gender_index);
+		const candidates = DBComponentModelFileData.getModelsForRaceGenderByPosition(options, race_id, gender_index, fallback);
 
 		if (candidates.left)
 			models.push(candidates.left);
@@ -322,7 +327,7 @@ const get_display_data = (display_id, race_id, gender_index) => {
 				continue;
 
 			if (race_id !== undefined && gender_index !== undefined) {
-				const best = DBComponentModelFileData.getModelForRaceGender(options, race_id, gender_index);
+				const best = DBComponentModelFileData.getModelForRaceGender(options, race_id, gender_index, fallback);
 				if (best)
 					models.push(best);
 			} else {

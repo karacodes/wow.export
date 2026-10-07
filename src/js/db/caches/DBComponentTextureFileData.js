@@ -6,6 +6,7 @@
 
 const log = require('../../log');
 const db2 = require('../../casc/db2');
+const { as_chain, race_rank } = require('../../wow/race-fallback');
 
 const file_data_to_info = new Map();
 
@@ -50,9 +51,11 @@ const initialize = async () => {
  * @param {number} race_id - character race ID
  * @param {number} gender_index - 0=male, 1=female
  * @param {number} [class_id] - character class ID (12=demon hunter); 0=generic
+ * @param {Array<{raceID: number, genderIndex: number}>|number} [fallback] - races to prefer after
+ * the character's own (ChrRaces.*TextureFallbackRaceID, see DBChrRaces.getTextureFallbackChain)
  * @returns {number|null} - best matching FileDataID or null
  */
-const getTextureForRaceGender = (file_data_ids, race_id, gender_index, class_id = 0) => {
+const getTextureForRaceGender = (file_data_ids, race_id, gender_index, class_id = 0, fallback = 0) => {
 	if (!file_data_ids || file_data_ids.length === 0)
 		return null;
 
@@ -82,10 +85,11 @@ const getTextureForRaceGender = (file_data_ids, race_id, gender_index, class_id 
 		return untagged ? untagged.fdid : null;
 	}
 
-	// rank: specific gender > generic, then subject class > generic, then race match
+	// rank: specific gender > generic, then subject class > generic, then own race > fallback races in order > other
+	const chain = as_chain(fallback, gender_index);
 	const rank_gender = info => info.genderIndex === gender_index ? 0 : 1;
 	const rank_class = info => (class_id && info.classID === class_id) ? 0 : 1;
-	const rank_race = info => info.raceID === race_id ? 0 : 1;
+	const rank_race = info => race_rank(info.raceID, race_id, chain);
 
 	tagged.sort((a, b) =>
 		rank_gender(a.info) - rank_gender(b.info) ||

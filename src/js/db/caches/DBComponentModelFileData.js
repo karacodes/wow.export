@@ -6,6 +6,7 @@
 
 const log = require('../../log');
 const db2 = require('../../casc/db2');
+const { as_chain, pick_model_variant } = require('../../wow/race-fallback');
 
 // maps FileDataID -> { raceID, genderIndex, classID, positionIndex }
 const file_data_to_info = new Map();
@@ -43,14 +44,17 @@ const initialize = async () => {
 };
 
 /**
- * Filter a list of FileDataIDs to find the best match for race/gender
+ * Filter a list of FileDataIDs to find the best match for race/gender.
+ * Order: the race's own entry (exact gender, then either gender), the same for each
+ * fallback race (ChrRaces.*ModelFallbackRaceID, see DBChrRaces), a race-0 entry, the first.
  * @param {number[]} file_data_ids - list of candidate FileDataIDs
  * @param {number} race_id - character race ID
  * @param {number} gender_index - 0=male, 1=female
- * @param {number} [fallback_race_id] - optional fallback race
+ * @param {Array<{raceID: number, genderIndex: number}>|number} [fallback] - fallback chain
+ * from DBChrRaces.getModelFallbackChain (a bare race id is accepted too)
  * @returns {number|null} - best matching FileDataID or null
  */
-const getModelForRaceGender = (file_data_ids, race_id, gender_index, fallback_race_id = 0) => {
+const getModelForRaceGender = (file_data_ids, race_id, gender_index, fallback = 0) => {
 	if (!file_data_ids || file_data_ids.length === 0)
 		return null;
 
@@ -58,38 +62,8 @@ const getModelForRaceGender = (file_data_ids, race_id, gender_index, fallback_ra
 	if (file_data_ids.length === 1)
 		return file_data_ids[0];
 
-	// try exact race + gender match
-	for (const fdid of file_data_ids) {
-		const info = file_data_to_info.get(fdid);
-		if (info && info.raceID === race_id && info.genderIndex === gender_index)
-			return fdid;
-	}
-
-	// try race + any gender
-	for (const fdid of file_data_ids) {
-		const info = file_data_to_info.get(fdid);
-		if (info && info.raceID === race_id && info.genderIndex === GENDER_ANY)
-			return fdid;
-	}
-
-	// try fallback race if provided
-	if (fallback_race_id > 0) {
-		for (const fdid of file_data_ids) {
-			const info = file_data_to_info.get(fdid);
-			if (info && info.raceID === fallback_race_id && (info.genderIndex === gender_index || info.genderIndex === GENDER_ANY))
-				return fdid;
-		}
-	}
-
-	// try race=0 (any race)
-	for (const fdid of file_data_ids) {
-		const info = file_data_to_info.get(fdid);
-		if (info && info.raceID === 0)
-			return fdid;
-	}
-
-	// fallback to first
-	return file_data_ids[0];
+	const candidates = file_data_ids.map(fdid => ({ fdid, info: file_data_to_info.get(fdid) }));
+	return pick_model_variant(candidates, race_id, gender_index, as_chain(fallback, gender_index), GENDER_ANY);
 };
 
 /**
@@ -98,9 +72,10 @@ const getModelForRaceGender = (file_data_ids, race_id, gender_index, fallback_ra
  * @param {number[]} file_data_ids - list of candidate FileDataIDs
  * @param {number} race_id - character race ID
  * @param {number} gender_index - 0=male, 1=female
+ * @param {Array<{raceID: number, genderIndex: number}>|number} [fallback] - fallback chain, as getModelForRaceGender
  * @returns {{left: number|null, right: number|null}}
  */
-const getModelsForRaceGenderByPosition = (file_data_ids, race_id, gender_index) => {
+const getModelsForRaceGenderByPosition = (file_data_ids, race_id, gender_index, fallback = 0) => {
 	const result = { left: null, right: null };
 
 	if (!file_data_ids || file_data_ids.length === 0)
@@ -117,29 +92,9 @@ const getModelsForRaceGenderByPosition = (file_data_ids, race_id, gender_index) 
 		by_position[info.positionIndex].push({ fdid, info });
 	}
 
-	// helper to find best match from a list of candidates
-	const find_best = (candidates) => {
-		// exact race + gender
-		for (const c of candidates) {
-			if (c.info.raceID === race_id && c.info.genderIndex === gender_index)
-				return c.fdid;
-		}
-
-		// race + any gender
-		for (const c of candidates) {
-			if (c.info.raceID === race_id && c.info.genderIndex === GENDER_ANY)
-				return c.fdid;
-		}
-
-		// any race
-		for (const c of candidates) {
-			if (c.info.raceID === 0)
-				return c.fdid;
-		}
-
-		// fallback to first
-		return candidates.length > 0 ? candidates[0].fdid : null;
-	};
+	// best match per side: own race, fallback races, any race, first
+	const chain = as_chain(fallback, gender_index);
+	const find_best = (candidates) => pick_model_variant(candidates, race_id, gender_index, chain, GENDER_ANY);
 
 	result.left = find_best(by_position[0]);
 	result.right = find_best(by_position[1]);

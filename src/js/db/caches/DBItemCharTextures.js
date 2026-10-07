@@ -8,6 +8,7 @@ const log = require('../../log');
 const db2 = require('../../casc/db2');
 const DBTextureFileData = require('./DBTextureFileData');
 const DBComponentTextureFileData = require('./DBComponentTextureFileData');
+const DBChrRaces = require('./DBChrRaces');
 
 // maps ItemID -> Map<ItemAppearanceModifierID, ItemDisplayInfoID>
 const item_to_display_ids = new Map();
@@ -43,6 +44,7 @@ const initialize = async () => {
 
 		await DBTextureFileData.ensureInitialized();
 		await DBComponentTextureFileData.initialize();
+		await DBChrRaces.initialize();
 
 		// build item -> modifier -> appearance -> display chain
 		const appearance_map = new Map();
@@ -160,10 +162,11 @@ const get_textures_by_display_id = (display_id, race_id = null, gender_index = n
 		return null;
 
 	const result = [];
+	const fallback = DBChrRaces.getTextureFallbackChain(race_id, gender_index);
 	for (const component of components) {
 		const file_data_ids = DBTextureFileData.getTextureFDIDsByMatID(component.materialResourcesID);
 		if (file_data_ids && file_data_ids.length > 0) {
-			const bestFileDataID = DBComponentTextureFileData.getTextureForRaceGender(file_data_ids, race_id, gender_index, class_id);
+			const bestFileDataID = DBComponentTextureFileData.getTextureForRaceGender(file_data_ids, race_id, gender_index, class_id, fallback);
 			result.push({
 				section: component.section,
 				fileDataID: bestFileDataID
