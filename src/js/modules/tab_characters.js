@@ -34,6 +34,7 @@ const DBGuildTabard = require('../db/caches/DBGuildTabard');
 const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization');
 const character_appearance = require('../ui/character-appearance');
 const { CLASS_DEMON_HUNTER, CLASS_OTHER, is_allowed_for_class } = require('../ui/customization-class');
+const { character_name: pick_character_name } = require('../ui/character-name');
 const AnimMapper = require('../3D/AnimMapper');
 const BoneMapper = require('../3D/BoneMapper');
 
@@ -1050,8 +1051,13 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 		});
 	}
 
+	// who the character is: the saved character's name, else the armory name (WoW Print names the STL after it)
+	const named = pick_character_name(core.view.chrSavedCharacterName, core.view.chrArmoryCharacterName);
+
 	const meta = {
 		formatVersion: 1,
+		name: named.name,
+		nameSource: named.source,
 		space: 'wow: x right, y forward, z up, as in the game files; the OBJ and glTF are Y-up (x, z, -y)',
 		race: race ? { id: race.id, name: race.label } : null,
 		gender: gender_index === null ? null : { index: gender_index, name: gender_index === 1 ? 'female' : 'male' },
@@ -1501,7 +1507,10 @@ async function import_character(core) {
 	const res = await generics.get(url);
 	if (res.ok) {
 		try {
-			await apply_import_data(core, await res.json(), 'bnet');
+			const data = await res.json();
+			await apply_import_data(core, data, 'bnet');
+			core.view.chrSavedCharacterName = null;
+			core.view.chrArmoryCharacterName = data?.name || data?.character?.name || character_name;
 		} catch (e) {
 			log.write('Failed to parse character data: %s', e.message);
 			core.setToast('error', 'Failed to import character ' + character_label, null, -1);
@@ -1516,6 +1525,12 @@ async function import_character(core) {
 	}
 
 	core.view.chrModelLoading = false;
+}
+
+// an import that carries no name (a WMV .chr file, a Wowhead dressing room) is a new, unnamed character
+function forget_character_name(core) {
+	core.view.chrSavedCharacterName = null;
+	core.view.chrArmoryCharacterName = null;
 }
 
 async function import_wmv_character(core) {
@@ -1542,6 +1557,7 @@ async function import_wmv_character(core) {
 			const file_content = await file.text();
 			const wmv_data = wmv_parse(file_content);
 			await apply_import_data(core, wmv_data, 'wmv');
+			forget_character_name(core);
 		} catch (e) {
 			log.write('failed to load .chr file: %s', e.message);
 			core.setToast('error', `failed to load .chr file: ${e.message}`, null, -1);
@@ -1568,6 +1584,7 @@ async function import_wowhead_character(core) {
 	try {
 		const wowhead_data = wowhead_parse(wowhead_url);
 		await apply_import_data(core, wowhead_data, 'wowhead');
+		forget_character_name(core);
 	} catch (e) {
 		log.write('failed to parse wowhead url: %s', e.message);
 		core.setToast('error', `failed to import wowhead character: ${e.message}`, null, -1);
@@ -1833,6 +1850,8 @@ async function save_character(core, name, thumb_data) {
 		await fsp.writeFile(thumb_path, buffer);
 	}
 
+	core.view.chrSavedCharacterName = name;
+
 	await load_saved_characters(core);
 	core.setToast('success', `Character "${name}" saved.`, null, 3000);
 }
@@ -1871,6 +1890,8 @@ async function load_character(core, character) {
 
 		core.view.chrModelLoading = true;
 		core.view.chrSavedCharactersScreen = false;
+		core.view.chrSavedCharacterName = character.name;
+		core.view.chrArmoryCharacterName = null;
 
 		// apply equipment
 		const equipment = data.equipment || {};
@@ -2162,6 +2183,8 @@ async function import_json_character(core, save_to_my_characters) {
 				// load directly into viewer
 				core.view.chrModelLoading = true;
 				core.view.chrSavedCharactersScreen = false;
+				core.view.chrSavedCharacterName = data.name || path.basename(file_path, '.json');
+				core.view.chrArmoryCharacterName = null;
 
 				core.view.chrEquippedItems = equipment;
 				core.view.chrEquippedItemSkins = equipment_skins;
