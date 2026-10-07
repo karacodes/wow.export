@@ -338,5 +338,22 @@ module.exports = {
 
 		// init cdn pings
 		this.init_cdn_pings();
+
+		// the unattended print batch (src/js/print-batch-runner.js) opens the last local
+		// install without a click; it may ask before or after this screen is mounted
+		this.open_print_batch_install = () => {
+			const entry = this.$core.view.printBatchInstall;
+			if (!entry)
+				return;
+
+			this.$core.view.printBatchInstall = null;
+			this.open_local_install(entry.path, entry.product);
+		};
+		this.$core.events.on('print-batch-open-install', this.open_print_batch_install);
+		this.open_print_batch_install();
+	},
+
+	unmounted() {
+		this.$core.events.off('print-batch-open-install', this.open_print_batch_install);
 	}
 };

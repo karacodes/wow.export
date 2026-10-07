@@ -37,6 +37,7 @@ const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization'
 const character_appearance = require('../ui/character-appearance');
 const { CLASS_DEMON_HUNTER, CLASS_OTHER, is_allowed_for_class } = require('../ui/customization-class');
 const { character_name: pick_character_name } = require('../ui/character-name');
+const print_batch = require('../wow/print-batch');
 const { BACK_SLOT, CAPE_TEXTURE_TYPE, cape_texture_for_display, character_variant_textures } = require('../wow/cape-texture');
 const AnimMapper = require('../3D/AnimMapper');
 const BoneMapper = require('../3D/BoneMapper');
@@ -131,6 +132,7 @@ let default_model_file_data_id = 0;
 let watcher_cleanup_funcs = [];
 let is_importing = false;
 let auto_select_in_progress = false;
+let tab_ready = false; // mounted() has loaded the tab's data: the print batch may start
 
 /** The class the viewer dresses and customizes for: Demon Hunter or Other (any other class). */
 function selected_class_id(core) {
@@ -1554,50 +1556,72 @@ async function apply_class_selection(core) {
 //region import
 async function import_character(core) {
 	core.view.characterImportMode = 'none';
-	core.view.chrModelLoading = true;
 
-	const character_name = core.view.chrImportChrName;
 	const selected_realm = core.view.chrImportSelectedRealm;
-	const base_region = core.view.chrImportSelectedRegion;
-	const effective_region = core.view.chrImportClassicRealms ? 'classic-' + base_region : base_region;
-
 	if (selected_realm === null) {
 		core.setToast('error', 'Please enter a valid realm.', null, 3000);
-		core.view.chrModelLoading = false;
 		return;
 	}
 
-	const character_label = util.format('%s (%s-%s)', character_name, effective_region, selected_realm.label);
-	const url = util.format(core.view.config.armoryURL, encodeURIComponent(effective_region), encodeURIComponent(selected_realm.value), encodeURIComponent(character_name.toLowerCase()));
+	const base_region = core.view.chrImportSelectedRegion;
+	const effective_region = core.view.chrImportClassicRealms ? 'classic-' + base_region : base_region;
+	await import_from_armory(core, effective_region, selected_realm.value, core.view.chrImportChrName, selected_realm.label);
+}
+
+/**
+ * Import a character from the armory into the viewer (the Battle.net import, and the
+ * unattended print batch's --print-import).
+ * @param {object} core
+ * @param {string} region - e.g. 'eu', or 'classic-eu'
+ * @param {string} realm_slug - the armory's realm slug, e.g. 'argent-dawn'
+ * @param {string} character_name
+ * @param {string} [realm_label] - the realm's display name, for messages
+ * @returns {Promise<boolean>} true when the character was applied
+ */
+async function import_from_armory(core, region, realm_slug, character_name, realm_label = realm_slug) {
+	core.view.chrModelLoading = true;
+
+	const character_label = util.format('%s (%s-%s)', character_name, region, realm_label);
+	const url = util.format(core.view.config.armoryURL, encodeURIComponent(region), encodeURIComponent(realm_slug), encodeURIComponent(character_name.toLowerCase()));
 	log.write('Retrieving character data for %s from %s', character_label, url);
 
-	const res = await generics.get(url);
-	if (res.ok) {
-		try {
-			const data = await res.json();
-			await apply_import_data(core, data, 'bnet');
-			core.view.chrSavedCharacterName = null;
-			core.view.chrArmoryCharacterName = data?.name || data?.character?.name || character_name;
-		} catch (e) {
-			log.write('Failed to parse character data: %s', e.message);
-			core.setToast('error', 'Failed to import character ' + character_label, null, -1);
-		}
-	} else {
-		log.write('Failed to retrieve character data: %d %s', res.status, res.statusText);
+	let ok = false;
+	try {
+		const res = await generics.get(url);
+		if (res.ok) {
+			try {
+				const data = await res.json();
+				await apply_import_data(core, data, 'bnet');
+				core.view.chrSavedCharacterName = null;
+				core.view.chrArmoryCharacterName = data?.name || data?.character?.name || character_name;
+				core.view.chrCharacterRealm = realm_slug;
+				ok = true;
+			} catch (e) {
+				log.write('Failed to parse character data: %s', e.message);
+				core.setToast('error', 'Failed to import character ' + character_label, null, -1);
+			}
+		} else {
+			log.write('Failed to retrieve character data: %d %s', res.status, res.statusText);
 
-		if (res.status == 404)
-			core.setToast('error', 'Could not find character ' + character_label, null, -1);
-		else
-			core.setToast('error', 'Failed to import character ' + character_label, null, -1);
+			if (res.status == 404)
+				core.setToast('error', 'Could not find character ' + character_label, null, -1);
+			else
+				core.setToast('error', 'Failed to import character ' + character_label, null, -1);
+		}
+	} catch (e) {
+		log.write('Failed to retrieve character data: %s', e.message);
+		core.setToast('error', 'Failed to import character ' + character_label, null, -1);
 	}
 
 	core.view.chrModelLoading = false;
+	return ok;
 }
 
 // an import that carries no name (a WMV .chr file, a Wowhead dressing room) is a new, unnamed character
 function forget_character_name(core) {
 	core.view.chrSavedCharacterName = null;
 	core.view.chrArmoryCharacterName = null;
+	core.view.chrCharacterRealm = null;
 }
 
 async function import_wmv_character(core) {
@@ -1959,6 +1983,7 @@ async function load_character(core, character) {
 		core.view.chrSavedCharactersScreen = false;
 		core.view.chrSavedCharacterName = character.name;
 		core.view.chrArmoryCharacterName = null;
+		core.view.chrCharacterRealm = typeof data.realm === 'string' && data.realm ? data.realm : null;
 
 		// apply equipment
 		const equipment = data.equipment || {};
@@ -1987,9 +2012,12 @@ async function load_character(core, character) {
 			core.view.chrCustRaceSelection = [race];
 
 		core.view.chrModelLoading = false;
+		return true;
 	} catch (e) {
+		core.view.chrModelLoading = false;
 		log.write('failed to load character: %s', e.message);
 		core.setToast('error', `Failed to load character: ${e.message}`, null, -1);
+		return false;
 	}
 }
 
@@ -2100,6 +2128,10 @@ function get_current_character_data(core) {
 	const skins = core.view.chrEquippedItemSkins;
 	if (skins && Object.keys(skins).length > 0)
 		data.equipment_skins = { ...skins };
+
+	// the armory realm, so the print batch files the character under character/<realm>/<name>
+	if (core.view.chrCharacterRealm)
+		data.realm = core.view.chrCharacterRealm;
 
 	return data;
 }
@@ -2252,6 +2284,7 @@ async function import_json_character(core, save_to_my_characters) {
 				core.view.chrSavedCharactersScreen = false;
 				core.view.chrSavedCharacterName = data.name || path.basename(file_path, '.json');
 				core.view.chrArmoryCharacterName = null;
+				core.view.chrCharacterRealm = typeof data.realm === 'string' && data.realm ? data.realm : null;
 
 				core.view.chrEquippedItems = equipment;
 				core.view.chrEquippedItemSkins = equipment_skins;
@@ -2681,7 +2714,7 @@ function print_export_geoset_mask(core) {
  * @param {object} core
  * @param {object|null} export_paths
  * @param {object} [options]
- * @param {string} [options.sub_dir] - folder under the model's export folder (the batch export keeps each saved character apart)
+ * @param {string} [options.dir] - folder under the export folder to write into instead of the model's own (the batch's character/<realm>/<name>)
  * @returns {Promise<boolean>} true when both files were written
  */
 async function export_char_for_printing(core, export_paths, options = {}) {
@@ -2703,7 +2736,7 @@ async function export_char_for_printing(core, export_paths, options = {}) {
 
 	const file_data_id = active_model;
 	const model_file_name = listfile.getByID(file_data_id);
-	const file_name = options.sub_dir ? path.join(path.dirname(model_file_name), options.sub_dir, path.basename(model_file_name)) : model_file_name;
+	const file_name = options.dir ? path.join(options.dir, path.basename(model_file_name)) : model_file_name;
 	const variants = print_export_geoset_mask(core);
 	const export_mask = variants?.mask ?? null;
 	log.write('Exporting character %s for printing (posed OBJ + sidecar, rigged glTF with animations, %d hidden geoset variants included)', file_name, variants?.added ?? 0);
@@ -2729,15 +2762,14 @@ async function export_char_for_printing(core, export_paths, options = {}) {
 
 /**
  * Load every saved character (My Characters) in turn and run the print export on each,
- * into its own folder named after the character under the model's export folder. One
- * unattended run exports the whole collection, and a run on a new build is a regression
- * check: the log and the final toast say which characters failed.
+ * into character/<realm>/<name> under the export folder (`local` when it has no realm).
+ * One run exports the whole collection, and a run on a new build is a regression check:
+ * the log and the final toast say which characters failed.
  * @param {object} core
  */
 async function export_all_saved_for_printing(core) {
 	await load_saved_characters(core);
-	const characters = [...core.view.chrSavedCharacters];
-	if (characters.length === 0) {
+	if (core.view.chrSavedCharacters.length === 0) {
 		core.setToast('info', 'no saved characters to export', null, 4000);
 		return;
 	}
@@ -2747,41 +2779,109 @@ async function export_all_saved_for_printing(core) {
 		return;
 	}
 
+	const result = await run_print_batch(core, { all: true, names: [], imports: [], errors: [] });
+	const failed = result.characters.filter(c => !c.ok).map(c => c.name);
+	const export_dir = ExportHelper.getExportPath('character');
+	const toast_opt = { 'View in Explorer': () => nw.Shell.openItem(export_dir) };
+	if (failed.length === 0)
+		core.setToast('success', util.format('Print batch: exported all %d saved characters.', result.characters.length), toast_opt, -1);
+	else
+		core.setToast('error', util.format('Print batch: %d of %d exported, failed: %s', result.characters.length - failed.length, result.characters.length, failed.join(', ')), toast_opt, -1);
+}
+
+/**
+ * The print batch behind the Export All button and the unattended start-up flags (F12):
+ * import the armory characters asked for, then load the saved ones asked for, and run
+ * the print export on each into character/<realm>/<name>. Writes the result to
+ * character/print-batch.json under the export folder and returns it.
+ * @param {object} core
+ * @param {{all: boolean, names: string[], imports: {region: string, realm: string, name: string}[], errors: string[]}} batch
+ * @returns {Promise<{ok: boolean, started: string, finished: string, errors: string[], characters: object[]}>}
+ */
+async function run_print_batch(core, batch) {
+	const started = new Date().toISOString();
+	const errors = [...(batch.errors || [])];
+	const characters = [];
+
+	await load_saved_characters(core);
+	const { selected, missing } = print_batch.select_saved(core.view.chrSavedCharacters, batch);
+	for (const name of missing)
+		errors.push('no saved character named ' + name);
+
+	const jobs = [
+		...(batch.imports || []).map(entry => ({ kind: 'armory', label: entry.region + '/' + entry.realm + '/' + entry.name, entry })),
+		...selected.map(character => ({ kind: 'saved', label: character.name, character }))
+	];
+
 	core.view.chrSavedCharactersScreen = false;
-	log.write('Print batch: exporting %d saved characters', characters.length);
+	log.write('Print batch: exporting %d character(s)', jobs.length);
 
-	const failed = [];
-	for (let i = 0; i < characters.length; i++) {
-		const character = characters[i];
-		core.setToast('progress', util.format('Print batch %d / %d: loading %s', i + 1, characters.length, character.name), null, -1, false);
-		log.write('Print batch %d/%d: %s', i + 1, characters.length, character.name);
+	for (let i = 0; i < jobs.length; i++) {
+		const job = jobs[i];
+		const row = { name: job.kind === 'saved' ? job.character.name : job.entry.name, source: job.kind, realm: null, folder: null, path: null, ok: false, error: null };
+		characters.push(row);
 
-		await load_character(core, character);
+		core.setToast('progress', util.format('Print batch %d / %d: loading %s', i + 1, jobs.length, job.label), null, -1, false);
+		log.write('Print batch %d/%d: %s', i + 1, jobs.length, job.label);
+
+		if (job.kind === 'armory') {
+			if (!await import_from_armory(core, job.entry.region, job.entry.realm, job.entry.name)) {
+				row.error = 'armory import failed';
+				log.write('Print batch: %s could not be imported, skipped', job.label);
+				continue;
+			}
+		} else if (!await load_character(core, job.character)) {
+			// the viewer still holds the previous character: never export it under this name
+			row.error = 'saved character could not be read';
+			log.write('Print batch: %s could not be read, skipped', job.label);
+			continue;
+		}
+
 		if (!await wait_until_idle(core)) {
-			log.write('Print batch: %s did not finish loading in time, skipped', character.name);
-			failed.push(character.name);
+			row.error = 'did not finish loading in time';
+			log.write('Print batch: %s did not finish loading in time, skipped', job.label);
 			continue;
 		}
 
 		if (!active_renderer?.m2) {
-			log.write('Print batch: no model loaded for %s, skipped', character.name);
-			failed.push(character.name);
+			row.error = 'no model loaded';
+			log.write('Print batch: no model loaded for %s, skipped', job.label);
 			continue;
 		}
 
-		const sub_dir = ExportHelper.sanitizeFilename(character.name).trim() || character.id;
-		if (!await export_char_for_printing(core, core.openLastExportStream(), { sub_dir }))
-			failed.push(character.name);
+		const named = pick_character_name(core.view.chrSavedCharacterName, core.view.chrArmoryCharacterName);
+		row.name = named.name || row.name;
+		row.realm = core.view.chrCharacterRealm || null;
+		row.folder = print_batch.character_folder(row.realm, row.name, job.character?.id);
+		row.path = ExportHelper.getExportPath(row.folder); // on disk (the removePathSpaces setting drops spaces)
+
+		row.ok = await export_char_for_printing(core, core.openLastExportStream(), { dir: row.folder });
+		if (!row.ok)
+			row.error = 'export failed (see the runtime log)';
 	}
 
-	const done = characters.length - failed.length;
-	log.write('Print batch finished: %d of %d exported%s', done, characters.length, failed.length ? ', failed: ' + failed.join(', ') : '');
-	const export_dir = ExportHelper.getExportPath('character');
-	const toast_opt = { 'View in Explorer': () => nw.Shell.openItem(export_dir) };
-	if (failed.length === 0)
-		core.setToast('success', util.format('Print batch: exported all %d saved characters.', characters.length), toast_opt, -1);
-	else
-		core.setToast('error', util.format('Print batch: %d of %d exported, failed: %s', done, characters.length, failed.join(', ')), toast_opt, -1);
+	const done = characters.filter(c => c.ok).length;
+	log.write('Print batch finished: %d of %d exported%s', done, characters.length, done < characters.length ? ', failed: ' + characters.filter(c => !c.ok).map(c => c.name).join(', ') : '');
+
+	const result = {
+		ok: errors.length === 0 && done === characters.length,
+		started,
+		finished: new Date().toISOString(),
+		exportDir: ExportHelper.getExportPath(''),
+		errors,
+		characters
+	};
+
+	const result_path = ExportHelper.getExportPath('character/' + print_batch.RESULT_FILE);
+	try {
+		await generics.createDirectory(path.dirname(result_path));
+		await fsp.writeFile(result_path, JSON.stringify(result, null, '\t'));
+		log.write('Print batch: result written to %s', result_path);
+	} catch (e) {
+		log.write('Print batch: failed to write %s: %s', result_path, e.message);
+	}
+
+	return result;
 }
 
 const export_char_model = async (core) => {
@@ -2944,6 +3044,10 @@ function get_selected_choice(core, option_id) {
 //region template
 module.exports = {
 	get_default_characters_dir,
+
+	// the unattended print batch (src/js/print-batch-runner.js) waits for the tab, then runs
+	is_ready: () => tab_ready,
+	run_print_batch,
 
 	register() {
 		this.registerNavButton('Characters', 'person-solid.svg', InstallType.CASC);
@@ -3812,9 +3916,13 @@ module.exports = {
 		};
 
 		charTextureOverlay.ensureActiveLayerAttached();
+
+		tab_ready = true;
+		this.$core.events.emit('chr-tab-ready');
 	},
 
 	unmounted() {
+		tab_ready = false;
 		reset_module_state();
 	}
 };
