@@ -8,12 +8,14 @@ const log = require('../../log');
 const db2 = require('../../casc/db2');
 const DBModelFileData = require('./DBModelFileData');
 const DBItemDisplayInfoModelMatRes = require('./DBItemDisplayInfoModelMatRes');
+const DBTextureFileData = require('./DBTextureFileData');
 const DBComponentModelFileData = require('./DBComponentModelFileData');
 
 // maps ItemID -> Map<ItemAppearanceModifierID, ItemDisplayInfoID>
 const item_to_display_ids = new Map();
 
-// maps ItemDisplayInfoID -> { modelOptions: [[fdid, ...], ...], textures: [fdid, ...], geosetGroup: [...], attachmentGeosetGroup: [...] }
+// maps ItemDisplayInfoID -> { modelOptions: [[fdid, ...], ...], textures: [fdid, ...], texturesByType: {type: [fdid, ...]}, geosetGroup: [...], attachmentGeosetGroup: [...] }
+// a display with textures but no model (a plain cloak: the body's cloak geoset wears the texture) is kept with modelOptions []
 const display_to_data = new Map();
 
 let is_initialized = false;
@@ -62,8 +64,6 @@ const initialize = async () => {
 		// load model and texture file data IDs from ItemDisplayInfo
 		for (const [display_id, row] of await db2.ItemDisplayInfo.getAllRows()) {
 			const model_res_ids = row.ModelResourcesID.filter(e => e > 0);
-			if (model_res_ids.length === 0)
-				continue;
 
 			// store ALL file data IDs per model resource (filter by race/gender at query time)
 			const model_options = [];
@@ -75,8 +75,7 @@ const initialize = async () => {
 					model_options.push([]);
 			}
 
-			if (model_options.every(arr => arr.length === 0))
-				continue;
+			const has_models = !model_options.every(arr => arr.length === 0);
 
 			// get texture file data IDs from display id
 			const texture_file_data_ids = [];
@@ -84,6 +83,20 @@ const initialize = async () => {
 			if (itemDisplayTexFileDataIDs !== undefined) {
 				texture_file_data_ids.push(...itemDisplayTexFileDataIDs);
 			}
+
+			// textures by type (2 = cape), from ItemDisplayInfoModelMatRes; older data keeps the
+			// cape texture in ItemDisplayInfo.ModelMaterialResourcesID instead, so read that too
+			const textures_by_type = { ...(DBItemDisplayInfoModelMatRes.getItemDisplayTextureFileIdsByType(display_id) || {}) };
+			if (texture_file_data_ids.length === 0) {
+				for (const mat_res_id of (row.ModelMaterialResourcesID || []).filter(e => e > 0)) {
+					const file_data_ids = DBTextureFileData.getTextureFDIDsByMatID(mat_res_id);
+					if (file_data_ids && file_data_ids.length > 0)
+						texture_file_data_ids.push(...file_data_ids);
+				}
+			}
+
+			if (!has_models && texture_file_data_ids.length === 0)
+				continue;
 
 			// and per model: model n of the item uses the textures with ModelIndex n
 			const textures_by_model = model_res_ids.map((_, model_index) =>
@@ -94,8 +107,9 @@ const initialize = async () => {
 			const attachment_geoset_group = row.AttachmentGeosetGroup || [];
 
 			display_to_data.set(display_id, {
-				modelOptions: model_options,
+				modelOptions: has_models ? model_options : [],
 				textures: texture_file_data_ids,
+				texturesByType: textures_by_type,
 				texturesByModel: textures_by_model,
 				geosetGroup: geoset_group,
 				attachmentGeosetGroup: attachment_geoset_group
@@ -165,7 +179,8 @@ const get_item_models = (item_id, modifier_id) => {
  * @param {number} [gender_index] - 0=male, 1=female for filtering
  * @param {number} [modifier_id] - item appearance modifier (skin index)
  * @param {'left'|'right'} [shoulder_position] - for shoulder items, return only the specified side
- * @returns {{ID: number, textures: number[], texturesByModel: number[][], models: number[], modelIndices: number[], geosetGroup: number[], attachmentGeosetGroup: number[]}|null}
+ * @returns {{ID: number, textures: number[], texturesByType: Object<number, number[]>, texturesByModel: number[][], models: number[], modelIndices: number[], geosetGroup: number[], attachmentGeosetGroup: number[]}|null}
+ * `models` is empty for a display with textures only (a plain cloak).
  * `modelIndices[i]` is the ModelResourcesID slot `models[i]` came from, the index to use
  * with `texturesByModel` (see `getItemTexturesForModel`).
  */
@@ -240,6 +255,7 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 		models: models,
 		modelIndices: model_indices,
 		textures: data.textures,
+		texturesByType: data.texturesByType,
 		texturesByModel: data.texturesByModel,
 		geosetGroup: data.geosetGroup,
 		attachmentGeosetGroup: data.attachmentGeosetGroup
@@ -335,6 +351,7 @@ const get_display_data = (display_id, race_id, gender_index) => {
 		ID: display_id,
 		models,
 		textures: data.textures,
+		texturesByType: data.texturesByType,
 		geosetGroup: data.geosetGroup,
 		attachmentGeosetGroup: data.attachmentGeosetGroup
 	};
