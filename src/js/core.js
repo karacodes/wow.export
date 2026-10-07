@@ -257,6 +257,8 @@ const makeNewView = () => {
 		colorPickerOpenFor: null, // Currently open color picker option ID.
 		colorPickerPosition: { x: 0, y: 0 }, // Color picker popup position.
 		chrImportChrName: '', // Character import, character name input.
+		chrSavedCharacterName: null, // Name of the saved character loaded into (or just saved from) the viewer; the print export's sidecar names the character after it.
+		chrArmoryCharacterName: null, // Name the viewer's character was imported from the armory under (sidecar fallback when it was not saved).
 		chrImportRegions: [],
 		chrImportSelectedRegion: '',
 		chrImportRealms: [],
