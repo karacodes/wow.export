@@ -39,7 +39,16 @@ test('imports and all can be combined', () => {
 test('bad flags are reported, not guessed', () => {
 	const batch = parse_print_batch_args(['--print-export=', '--print-import=us/stormrage', '--print-import=us//Foo']);
 	assert.equal(batch.errors.length, 3);
-	assert.equal(batch.all, true); // nothing usable was named, so the default set
+	assert.deepEqual(batch.names, []);
+	assert.deepEqual(batch.imports, []);
+});
+
+test('a rejected name or import flag never widens the run to every saved character', () => {
+	assert.equal(parse_print_batch_args(['--print-export=']).all, false);
+	assert.equal(parse_print_batch_args(['--print-import=eu/argent-dawn']).all, false);
+	assert.equal(parse_print_batch_args(['--print-import=bad', '--print-export=Wrenz']).all, false);
+	// asked for explicitly, all still holds next to a bad flag
+	assert.equal(parse_print_batch_args(['--print-export-all', '--print-import=bad']).all, true);
 });
 
 test('realm names become armory slugs', () => {

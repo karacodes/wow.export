@@ -70,6 +70,9 @@ async function run(core, modules, batch) {
 	log.write('Print batch requested at start-up: %s', JSON.stringify(batch));
 
 	try {
+		// a launcher waits for this file: never let it find the last run's
+		await fsp.rm(ExportHelper.getExportPath('character/' + print_batch.RESULT_FILE), { force: true });
+
 		const recent = core.view.config.recentLocal?.[0];
 		if (!recent)
 			return fail('no local installation has been opened in wow.export yet; open one by hand once');

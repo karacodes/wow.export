@@ -10,7 +10,8 @@
 	  --print-import=<region>/<realm>/<name>  import a character from the armory first; repeat
 
 	With only --print-import, the run exports the imported characters; with no flag at all the
-	app starts as usual. Each character goes to character/<realm>/<name>/ under the export
+	app starts as usual. A malformed name or import flag is reported in the result and exports
+	nothing in its place (never every saved character). Each character goes to character/<realm>/<name>/ under the export
 	folder, `local` when it has no realm (built by hand), and the run writes
 	character/print-batch.json before it quits.
 */
@@ -30,6 +31,7 @@ const FLAG_IMPORT = '--print-import=';
 function parse_print_batch_args(argv) {
 	let all = false;
 	let any = false;
+	let named_any = false; // a --print-export or --print-import flag, usable or not
 	const names = [];
 	const imports = [];
 	const errors = [];
@@ -43,6 +45,7 @@ function parse_print_batch_args(argv) {
 			any = true;
 		} else if (arg.startsWith(FLAG_EXPORT)) {
 			any = true;
+			named_any = true;
 			const name = arg.slice(FLAG_EXPORT.length).trim();
 			if (name.length === 0)
 				errors.push('empty name in ' + arg);
@@ -50,6 +53,7 @@ function parse_print_batch_args(argv) {
 				names.push(name);
 		} else if (arg.startsWith(FLAG_IMPORT)) {
 			any = true;
+			named_any = true;
 			const parts = arg.slice(FLAG_IMPORT.length).split('/').map(p => p.trim());
 			if (parts.length !== 3 || parts.some(p => p.length === 0))
 				errors.push('expected <region>/<realm>/<name> in ' + arg);
@@ -61,8 +65,9 @@ function parse_print_batch_args(argv) {
 	if (!any)
 		return null;
 
-	// nothing named: the whole saved collection, as the Export All button does
-	if (names.length === 0 && imports.length === 0)
+	// no character named at all: the whole saved collection, as the Export All button does. A
+	// named flag that was rejected never widens the run to every character; it is reported.
+	if (!named_any)
 		all = true;
 
 	return { all, names, imports, errors };

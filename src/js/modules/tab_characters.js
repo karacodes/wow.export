@@ -2012,9 +2012,12 @@ async function load_character(core, character) {
 			core.view.chrCustRaceSelection = [race];
 
 		core.view.chrModelLoading = false;
+		return true;
 	} catch (e) {
+		core.view.chrModelLoading = false;
 		log.write('failed to load character: %s', e.message);
 		core.setToast('error', `Failed to load character: ${e.message}`, null, -1);
+		return false;
 	}
 }
 
@@ -2827,8 +2830,11 @@ async function run_print_batch(core, batch) {
 				log.write('Print batch: %s could not be imported, skipped', job.label);
 				continue;
 			}
-		} else {
-			await load_character(core, job.character);
+		} else if (!await load_character(core, job.character)) {
+			// the viewer still holds the previous character: never export it under this name
+			row.error = 'saved character could not be read';
+			log.write('Print batch: %s could not be read, skipped', job.label);
+			continue;
 		}
 
 		if (!await wait_until_idle(core)) {
