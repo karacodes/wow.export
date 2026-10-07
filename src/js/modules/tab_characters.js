@@ -29,6 +29,8 @@ const DBItems = require('../db/caches/DBItems');
 const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
 const DBItemGeosets = require('../db/caches/DBItemGeosets');
 const DBItemModels = require('../db/caches/DBItemModels');
+const DBComponentModelFileData = require('../db/caches/DBComponentModelFileData');
+const { is_fitted_back_model } = require('../wow/fitted-back-model');
 const DBItemList = require('../db/caches/DBItemList');
 const DBGuildTabard = require('../db/caches/DBGuildTabard');
 const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization');
@@ -707,19 +709,32 @@ async function update_equipment_models(core) {
 			attachment_ids = [ATTACHMENT_ID.HAND_LEFT];
 
 		// split models into attachment vs collection
-		// attachment models: up to attachment_ids.length models get attached
+		// attachment models: up to attachment_ids.length models get attached, except
+		// race-fitted back models (3D capes built on the character's skeleton), which
+		// are skinned like collection models (see src/js/wow/fitted-back-model.js)
 		// collection models: remaining models render at origin with shared bones
 		const attachment_model_count = Math.min(display.models.length, attachment_ids.length);
-		const collection_start_index = attachment_model_count;
+		const attachment_entries = [];
+		const collection_entries = [];
+		for (let i = 0; i < display.models.length; i++) {
+			const entry = { file_data_id: display.models[i], model_index: display.modelIndices?.[i] ?? i };
+			if (i < attachment_model_count) {
+				if (is_fitted_back_model(slot_id, DBComponentModelFileData.getInfo(entry.file_data_id))) {
+					// keep every mesh of the fitted model, as the attachment path did
+					collection_entries.push({ ...entry, keep_geosets: true });
+					log.write('Back model %d is fitted to the race, skinned instead of attached', entry.file_data_id);
+				} else {
+					attachment_entries.push({ ...entry, attachment_id: attachment_ids[i] });
+				}
+			} else {
+				collection_entries.push({ ...entry, keep_geosets: false });
+			}
+		}
 
 		// load attachment models
-		if (attachment_model_count > 0) {
+		if (attachment_entries.length > 0) {
 			const renderers = [];
-			for (let i = 0; i < attachment_model_count; i++) {
-				const file_data_id = display.models[i];
-				const attachment_id = attachment_ids[i];
-				const model_index = display.modelIndices?.[i] ?? i;
-
+			for (const { file_data_id, attachment_id, model_index } of attachment_entries) {
 				try {
 					const file = await core.view.casc.getFile(file_data_id);
 					const renderer = new M2RendererGL(file, gl_context, false, false);
@@ -743,13 +758,11 @@ async function update_equipment_models(core) {
 				equipment_model_renderers.set(slot_id, { renderers, item_id, modifier_id });
 		}
 
-		// load collection models (models beyond attachment count, or all models if no attachments)
-		if (display.models.length > collection_start_index) {
+		// load collection models (models beyond attachment count, all models if no attachments,
+		// and race-fitted back models)
+		if (collection_entries.length > 0) {
 			const renderers = [];
-			for (let i = collection_start_index; i < display.models.length; i++) {
-				const file_data_id = display.models[i];
-				const model_index = display.modelIndices?.[i] ?? i;
-
+			for (const { file_data_id, model_index, keep_geosets } of collection_entries) {
 				try {
 					const file = await core.view.casc.getFile(file_data_id);
 					// collection models use character skeleton, reactive=false
@@ -763,7 +776,7 @@ async function update_equipment_models(core) {
 						renderer.buildBoneRemapTable(active_renderer.bones);
 
 					// apply geoset visibility using attachmentGeosetGroup
-					const slot_geosets = get_slot_geoset_mapping(slot_id);
+					const slot_geosets = keep_geosets ? null : get_slot_geoset_mapping(slot_id);
 
 					if (slot_geosets && display.attachmentGeosetGroup) {
 						renderer.hideAllGeosets();
