@@ -2983,7 +2983,10 @@ const export_char_model = async (core) => {
 	}
 
 	if (format === 'PRINT') {
-		await export_char_for_printing(core, export_paths);
+		// a named character (imported or saved) goes to character/<realm>/<name> (F14)
+		const named = pick_character_name(core.view.chrSavedCharacterName, core.view.chrArmoryCharacterName);
+		const dir = print_batch.print_export_folder(named.name, core.view.chrCharacterRealm);
+		await export_char_for_printing(core, export_paths, dir ? { dir } : {});
 		return;
 	}
 
