@@ -39,6 +39,7 @@ const { CLASS_DEMON_HUNTER, CLASS_OTHER, is_allowed_for_class } = require('../ui
 const { character_name: pick_character_name } = require('../ui/character-name');
 const print_batch = require('../wow/print-batch');
 const { BACK_SLOT, CAPE_TEXTURE_TYPE, cape_texture_for_display, character_variant_textures } = require('../wow/cape-texture');
+const random_equipment = require('../wow/random-equipment');
 const AnimMapper = require('../3D/AnimMapper');
 const BoneMapper = require('../3D/BoneMapper');
 
@@ -1495,6 +1496,45 @@ function randomize_customization(core) {
 			update_choice_for_option(core, option.id, random_choice.id);
 		}
 	}
+}
+
+// item sets Randomize Equipment draws from, built on its first click
+let random_equipment_sets = null;
+
+/**
+ * Randomize Equipment (F11): put on one random item set with 4+ visible armour pieces,
+ * one appearance variant for all of them. Weapons, shirt, tabard and the armour slots
+ * the set has no piece for keep what they have.
+ */
+async function randomize_equipment(core) {
+	const state = core.view;
+
+	if (random_equipment_sets === null) {
+		const visible = new Set();
+		for (const item of DBItemList.getItems()) {
+			if (item.modelCount > 0 || item.textureCount > 0)
+				visible.add(item.id);
+		}
+
+		const sets = [];
+		for (const [set_id, set_row] of await db2.ItemSet.getAllRows())
+			sets.push({ id: set_id, name: set_row.Name_lang, item_ids: set_row.ItemID });
+
+		random_equipment_sets = random_equipment.eligible_sets(sets, item_id => DBItems.getItemSlotId(item_id), item_id => visible.has(item_id));
+		log.write('Randomize Equipment: %d of %d item sets have %d+ visible armour pieces', random_equipment_sets.length, sets.length, random_equipment.MIN_SET_PIECES);
+	}
+
+	const outfit = random_equipment.roll_set_outfit(random_equipment_sets, item_id => DBItemModels.getItemModifiers(item_id));
+	if (outfit === null) {
+		core.setToast('info', 'No item set has enough visible armour pieces to randomize.', null, 2000);
+		return;
+	}
+
+	const { equipped, skins } = random_equipment.apply_outfit(state.chrEquippedItems, state.chrEquippedItemSkins, outfit);
+	state.chrEquippedItems = equipped;
+	state.chrEquippedItemSkins = skins;
+
+	core.setToast('success', `Equipped ${outfit.set.name} (${Object.keys(outfit.items).length} pieces).`, null, 2000);
 }
 
 /**
@@ -3348,6 +3388,7 @@ module.exports = {
 						<span @click.self="copy_item_name(context.node)">Copy Item Name</span>
 					</component>
 					<div class="chr-cust-controls">
+						<span class="chr-randomize-toggle" @click="randomize_equipment">Randomize Equipment</span>
 						<span @click="clear_all_equipment">Clear All Equipment</span>
 					</div>
 				</div>
@@ -3433,6 +3474,10 @@ module.exports = {
 
 		randomize_customization() {
 			randomize_customization(this.$core);
+		},
+
+		async randomize_equipment() {
+			await randomize_equipment(this.$core);
 		},
 
 		set_all_geosets(state) {
