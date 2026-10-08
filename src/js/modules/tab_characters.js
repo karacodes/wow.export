@@ -36,7 +36,7 @@ const DBGuildTabard = require('../db/caches/DBGuildTabard');
 const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization');
 const character_appearance = require('../ui/character-appearance');
 const { CLASS_DEMON_HUNTER, CLASS_OTHER, is_allowed_for_class } = require('../ui/customization-class');
-const { character_name: pick_character_name } = require('../ui/character-name');
+const { character_name: pick_character_name, armory_for_save, armory_from_save, save_name_suggestion } = require('../ui/character-name');
 const print_batch = require('../wow/print-batch');
 const { BACK_SLOT, CAPE_TEXTURE_TYPE, cape_texture_for_display, character_variant_textures } = require('../wow/cape-texture');
 const random_equipment = require('../wow/random-equipment');
@@ -1118,6 +1118,8 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 		formatVersion: 1,
 		name: named.name,
 		nameSource: named.source,
+		realm: core.view.chrCharacterRealm || null,
+		region: core.view.chrCharacterRegion || null,
 		space: 'wow: x right, y forward, z up, as in the game files; the OBJ and glTF are Y-up (x, z, -y)',
 		race: race ? { id: race.id, name: race.label } : null,
 		gender: gender_index === null ? null : { index: gender_index, name: gender_index === 1 ? 'female' : 'male' },
@@ -1637,6 +1639,7 @@ async function import_from_armory(core, region, realm_slug, character_name, real
 				core.view.chrSavedCharacterName = null;
 				core.view.chrArmoryCharacterName = data?.name || data?.character?.name || character_name;
 				core.view.chrCharacterRealm = realm_slug;
+				core.view.chrCharacterRegion = region;
 				ok = true;
 			} catch (e) {
 				log.write('Failed to parse character data: %s', e.message);
@@ -1664,6 +1667,15 @@ function forget_character_name(core) {
 	core.view.chrSavedCharacterName = null;
 	core.view.chrArmoryCharacterName = null;
 	core.view.chrCharacterRealm = null;
+	core.view.chrCharacterRegion = null;
+}
+
+// a saved character's name, realm and region from the Battle.net import it was saved from (F14)
+function apply_saved_armory(core, data) {
+	const armory = armory_from_save(data);
+	core.view.chrArmoryCharacterName = armory.name;
+	core.view.chrCharacterRealm = armory.realm;
+	core.view.chrCharacterRegion = armory.region;
 }
 
 async function import_wmv_character(core) {
@@ -2024,8 +2036,7 @@ async function load_character(core, character) {
 		core.view.chrModelLoading = true;
 		core.view.chrSavedCharactersScreen = false;
 		core.view.chrSavedCharacterName = character.name;
-		core.view.chrArmoryCharacterName = null;
-		core.view.chrCharacterRealm = typeof data.realm === 'string' && data.realm ? data.realm : null;
+		apply_saved_armory(core, data);
 
 		// apply equipment
 		const equipment = data.equipment || {};
@@ -2174,6 +2185,11 @@ function get_current_character_data(core) {
 	// the armory realm, so the print batch files the character under character/<realm>/<name>
 	if (core.view.chrCharacterRealm)
 		data.realm = core.view.chrCharacterRealm;
+
+	// the Battle.net import it came from (F14), restored when the save is loaded
+	const armory = armory_for_save(core.view.chrArmoryCharacterName, core.view.chrCharacterRealm, core.view.chrCharacterRegion);
+	if (armory)
+		data.armory = armory;
 
 	return data;
 }
@@ -2325,8 +2341,7 @@ async function import_json_character(core, save_to_my_characters) {
 				core.view.chrModelLoading = true;
 				core.view.chrSavedCharactersScreen = false;
 				core.view.chrSavedCharacterName = data.name || path.basename(file_path, '.json');
-				core.view.chrArmoryCharacterName = null;
-				core.view.chrCharacterRealm = typeof data.realm === 'string' && data.realm ? data.realm : null;
+				apply_saved_armory(core, data);
 
 				core.view.chrEquippedItems = equipment;
 				core.view.chrEquippedItemSkins = equipment_skins;
@@ -3189,7 +3204,7 @@ module.exports = {
 					<template v-if="!$core.view.chrShowGeosetControl">
 						<label class="ui-select-label">
 						<span class="select-prefix"><span class="prefix-label">Race:</span> <span class="prefix-value">{{ $core.view.chrCustRaceSelection[0]?.label }}</span></span>
-						<select class="ui-select" id="select-chr-race" :value="$core.view.chrCustRaceSelection[0]?.id" @change="$core.view.chrCustRaceSelection = [$event.target.value ? $core.view.chrCustRaces.find(r => r.id === parseInt($event.target.value)) : $core.view.chrCustRaces[0]]">
+						<select class="ui-select" id="select-chr-race" :value="$core.view.chrCustRaceSelection[0]?.id" @change="select_race($event.target.value)">
 							<option value="" disabled selected style="display:none;"></option>
 							<optgroup label="Playable Races">
 								<option v-for="race in $core.view.chrCustRacesPlayable" :key="race.id" :value="race.id">{{ race.label }}</option>
@@ -3539,8 +3554,19 @@ module.exports = {
 		async open_save_prompt() {
 			// capture thumbnail while still viewing the character
 			this.$core.view.chrPendingThumbnail = await capture_character_thumbnail(this.$core);
-			this.$core.view.chrSaveCharacterName = '';
+			this.$core.view.chrSaveCharacterName = save_name_suggestion(this.$core.view.chrSavedCharacterName, this.$core.view.chrArmoryCharacterName);
 			this.$core.view.chrSaveCharacterPrompt = true;
+		},
+
+		// picking another race makes another character: it drops the imported or saved name,
+		// realm and region (F14, Kara 2026-10-08); imports and loads set the race themselves
+		select_race(value) {
+			const view = this.$core.view;
+			const race = value ? view.chrCustRaces.find(r => r.id === parseInt(value)) : view.chrCustRaces[0];
+			if (race?.id !== view.chrCustRaceSelection[0]?.id)
+				forget_character_name(this.$core);
+
+			view.chrCustRaceSelection = [race];
 		},
 
 		async confirm_save_character() {
