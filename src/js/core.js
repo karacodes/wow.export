@@ -137,6 +137,7 @@ const makeNewView = () => {
 		modelViewerSkinsSelection: [], // Selected M2 model skins.
 		modelViewerAnims: [], // Available animations.
 		modelViewerAnimSelection: null, // Selected M2 model animation (single).
+		modelViewerAnimFilter: '', // Search box over the animation drop-down (F13).
 		modelViewerAnimPaused: false, // Animation playback paused state.
 		modelViewerAnimFrame: 0, // Current animation frame.
 		modelViewerAnimFrameCount: 0, // Total frames in current animation.
@@ -236,6 +237,7 @@ const makeNewView = () => {
 		chrModelViewerContext: null, // 3D context for the character-specific model viewer.
 		chrModelViewerAnims: [], // Available character animations.
 		chrModelViewerAnimSelection: null, // Selected character animation.
+		chrModelViewerAnimFilter: '', // Search box over the character animation drop-down (F13).
 		chrModelViewerAnimPaused: false, // Character animation playback paused state.
 		chrModelViewerAnimFrame: 0, // Current character animation frame.
 		chrModelViewerAnimFrameCount: 0, // Total frames in current character animation.

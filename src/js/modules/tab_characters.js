@@ -41,6 +41,7 @@ const print_batch = require('../wow/print-batch');
 const { BACK_SLOT, CAPE_TEXTURE_TYPE, cape_texture_for_display, character_variant_textures } = require('../wow/cape-texture');
 const random_equipment = require('../wow/random-equipment');
 const AnimMapper = require('../3D/AnimMapper');
+const { filter_animations } = require('../wow/animation-filter');
 const BoneMapper = require('../3D/BoneMapper');
 
 
@@ -1203,6 +1204,7 @@ async function load_character_model(core, file_data_id) {
 
 	core.view.chrModelViewerAnims = [];
 	core.view.chrModelViewerAnimSelection = null;
+	core.view.chrModelViewerAnimFilter = '';
 
 	try {
 		if (active_renderer) {
@@ -3126,8 +3128,12 @@ module.exports = {
 			</div>
 			<div v-show="!$core.view.chrSavedCharactersScreen" class="character-viewer-content">
 			<div v-if="$core.view.chrModelViewerAnims && $core.view.chrModelViewerAnims.length > 0" class="preview-dropdown-overlay">
+				<div class="anim-search">
+					<input type="text" v-model="$core.view.chrModelViewerAnimFilter" placeholder="Search animations..." spellcheck="false" @keydown.esc="$core.view.chrModelViewerAnimFilter = ''"/>
+					<span v-if="$core.view.chrModelViewerAnimFilter" class="anim-search-clear" @click="$core.view.chrModelViewerAnimFilter = ''" title="Clear search">&times;</span>
+				</div>
 				<select v-model="$core.view.chrModelViewerAnimSelection">
-					<option v-for="animation in $core.view.chrModelViewerAnims" :key="animation.id" :value="animation.id">
+					<option v-for="animation in filtered_animations()" :key="animation.id" :value="animation.id">
 						{{ animation.label }}
 					</option>
 				</select>
@@ -3413,6 +3419,12 @@ module.exports = {
 	},
 
 	methods: {
+		// the drop-down's entries narrowed by the search box above it (F13)
+		filtered_animations() {
+			const view = this.$core.view;
+			return filter_animations(view.chrModelViewerAnims, view.chrModelViewerAnimFilter, view.chrModelViewerAnimSelection);
+		},
+
 		import_wmv() {
 			import_wmv_character(this.$core);
 		},
