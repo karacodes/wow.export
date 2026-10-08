@@ -102,6 +102,22 @@ function character_folder(realm, name, fallback = 'unnamed') {
 }
 
 /**
+ * Where a single Export for printing writes (F14, Kara 2026-10-08: "Realm/name folder"): a
+ * character with a name (imported from the armory, or saved) goes to character/<realm>/<name>
+ * like the batch, `local` when it has no realm; one built by hand keeps the model's own folder
+ * (null here).
+ * @param {?string} name - the character's name (saved, else armory)
+ * @param {?string} realm - the realm slug, or null
+ * @returns {?string}
+ */
+function print_export_folder(name, realm) {
+	if (typeof name !== 'string' || name.trim().length === 0)
+		return null;
+
+	return character_folder(realm, name.trim());
+}
+
+/**
  * The saved characters a batch exports: all of them, or the named ones (any case).
  * @param {{name: string}[]} saved
  * @param {{all: boolean, names: string[]}} batch
@@ -126,4 +142,4 @@ function select_saved(saved, batch) {
 	return { selected, missing };
 }
 
-module.exports = { LOCAL_REALM, RESULT_FILE, parse_print_batch_args, realm_slug, character_folder, select_saved };
+module.exports = { LOCAL_REALM, RESULT_FILE, parse_print_batch_args, realm_slug, character_folder, print_export_folder, select_saved };

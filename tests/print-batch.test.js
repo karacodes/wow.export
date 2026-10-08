@@ -7,7 +7,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parse_print_batch_args, realm_slug, character_folder, select_saved } = require('../src/js/wow/print-batch');
+const { parse_print_batch_args, realm_slug, character_folder, print_export_folder, select_saved } = require('../src/js/wow/print-batch');
 
 test('no print flag is a normal start', () => {
 	assert.equal(parse_print_batch_args([]), null);
@@ -81,4 +81,18 @@ test('selecting saved characters: all, or by name in any case, with the missing 
 	const named = select_saved(saved, { all: false, names: ['WRENZ', 'Nobody'] });
 	assert.deepEqual(named.selected.map(c => c.id), ['2', '3']);
 	assert.deepEqual(named.missing, ['Nobody']);
+});
+
+test('Export for printing: an imported character goes to character/<realm>/<name> (F14)', () => {
+	assert.equal(print_export_folder('Manatorque', 'wyrmrest-accord'), 'character/wyrmrest-accord/Manatorque');
+});
+
+test('Export for printing: a saved character never imported goes to character/local/<name>', () => {
+	assert.equal(print_export_folder('Wrenz', null), 'character/local/Wrenz');
+	assert.equal(print_export_folder(' Wrenz ', ''), 'character/local/Wrenz');
+});
+
+test('Export for printing: a character built by hand keeps the model folder', () => {
+	assert.equal(print_export_folder(null, 'wyrmrest-accord'), null);
+	assert.equal(print_export_folder('   ', null), null);
 });
