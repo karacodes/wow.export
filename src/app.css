@@ -3571,6 +3571,37 @@ input[type=number]::-webkit-outer-spin-button {
 	min-width: 150px;
 }
 
+.preview-dropdown-overlay .anim-search {
+	position: relative;
+	margin-bottom: 4px;
+}
+
+.preview-dropdown-overlay .anim-search input {
+	background-color: var(--background);
+	color: var(--font-primary);
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	padding: 5px 22px 5px 8px;
+	font-size: 12px;
+	min-width: 150px;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.preview-dropdown-overlay .anim-search-clear {
+	position: absolute;
+	right: 7px;
+	top: 50%;
+	transform: translateY(-50%);
+	cursor: pointer;
+	color: var(--font-primary);
+	opacity: 0.6;
+}
+
+.preview-dropdown-overlay .anim-search-clear:hover {
+	opacity: 1;
+}
+
 #tab-characters .preview-dropdown-overlay {
 	position: fixed;
 	top: 70px;

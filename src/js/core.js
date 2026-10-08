@@ -236,6 +236,7 @@ const makeNewView = () => {
 		chrModelViewerContext: null, // 3D context for the character-specific model viewer.
 		chrModelViewerAnims: [], // Available character animations.
 		chrModelViewerAnimSelection: null, // Selected character animation.
+		chrModelViewerAnimFilter: '', // Search box over the character animation drop-down (F13).
 		chrModelViewerAnimPaused: false, // Character animation playback paused state.
 		chrModelViewerAnimFrame: 0, // Current character animation frame.
 		chrModelViewerAnimFrameCount: 0, // Total frames in current character animation.
