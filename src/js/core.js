@@ -137,7 +137,6 @@ const makeNewView = () => {
 		modelViewerSkinsSelection: [], // Selected M2 model skins.
 		modelViewerAnims: [], // Available animations.
 		modelViewerAnimSelection: null, // Selected M2 model animation (single).
-		modelViewerAnimFilter: '', // Search box over the animation drop-down (F13).
 		modelViewerAnimPaused: false, // Animation playback paused state.
 		modelViewerAnimFrame: 0, // Current animation frame.
 		modelViewerAnimFrameCount: 0, // Total frames in current animation.

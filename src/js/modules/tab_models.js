@@ -14,7 +14,6 @@ const DBCreatures = require('../db/caches/DBCreatures');
 const textureRibbon = require('../ui/texture-ribbon');
 const textureExporter = require('../ui/texture-exporter');
 const modelViewerUtils = require('../ui/model-viewer-utils');
-const { filter_animations } = require('../wow/animation-filter');
 const wmo_minimap = require('../wmo-minimap');
 
 const active_skins = new Map();
@@ -73,7 +72,6 @@ const preview_model = async (core, file_name) => {
 	core.view.modelViewerSkinsSelection = [];
 	core.view.modelViewerAnims = [];
 	core.view.modelViewerAnimSelection = null;
-	core.view.modelViewerAnimFilter = '';
 
 	try {
 		if (active_renderer) {
@@ -343,12 +341,8 @@ module.exports = {
 					<input v-if="$core.view.config.modelViewerShowBackground" type="color" id="background-color-input" v-model="$core.view.config.modelViewerBackgroundColor" title="Click to change background color"/>
 					<component :is="$components.ModelViewerGL" v-if="$core.view.modelViewerContext" :context="$core.view.modelViewerContext"></component>
 					<div v-if="$core.view.modelViewerAnims && $core.view.modelViewerAnims.length > 0 && !$core.view.modelTexturePreviewURL" class="preview-dropdown-overlay">
-						<div class="anim-search">
-							<input type="text" v-model="$core.view.modelViewerAnimFilter" placeholder="Search animations..." spellcheck="false" @keydown.esc="$core.view.modelViewerAnimFilter = ''"/>
-							<span v-if="$core.view.modelViewerAnimFilter" class="anim-search-clear" @click="$core.view.modelViewerAnimFilter = ''" title="Clear search">&times;</span>
-						</div>
 						<select v-model="$core.view.modelViewerAnimSelection">
-							<option v-for="animation in filtered_animations()" :key="animation.id" :value="animation.id">
+							<option v-for="animation in $core.view.modelViewerAnims" :key="animation.id" :value="animation.id">
 								{{ animation.label }}
 							</option>
 						</select>
@@ -485,12 +479,6 @@ module.exports = {
 	`,
 
 	methods: {
-		// the drop-down's entries narrowed by the search box above it (F13)
-		filtered_animations() {
-			const view = this.$core.view;
-			return filter_animations(view.modelViewerAnims, view.modelViewerAnimFilter, view.modelViewerAnimSelection);
-		},
-
 		handle_listbox_context(data) {
 			listboxContext.handle_context_menu(data);
 		},

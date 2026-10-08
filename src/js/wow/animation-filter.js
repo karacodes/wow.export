@@ -2,7 +2,8 @@
 	wow.export (https://github.com/Kruithne/wow.export)
 	License: MIT
 
-	The search box over the 3D viewer's animation drop-down (F13, Kara 2026-10-08): typing
+	The search box over the Characters tab's animation drop-down (F13, Kara 2026-10-08; the
+	Models tab keeps its plain list, her choice): typing
 	narrows the list to the animations whose label ("AttackUnarmed (16.0)") contains every word
 	typed, in any case, so "attack 1h" finds the one-handed attacks and "16." finds by id.
 	"No Animation" and the animation chosen now always stay in the list, so the drop-down
