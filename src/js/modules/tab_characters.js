@@ -41,6 +41,7 @@ const print_batch = require('../wow/print-batch');
 const print_outfit = require('../wow/print-outfit');
 const { BACK_SLOT, CAPE_TEXTURE_TYPE, cape_texture_for_display, character_variant_textures } = require('../wow/cape-texture');
 const random_equipment = require('../wow/random-equipment');
+const geoset_picks = require('../wow/geoset-overrides');
 const AnimMapper = require('../3D/AnimMapper');
 const { filter_animations } = require('../wow/animation-filter');
 const BoneMapper = require('../3D/BoneMapper');
@@ -136,6 +137,9 @@ let watcher_cleanup_funcs = [];
 let is_importing = false;
 let auto_select_in_progress = false;
 let tab_ready = false; // mounted() has loaded the tab's data: the print batch may start
+
+// geosets ticked or unticked by hand in Custom Geoset Control (#121)
+const geoset_pick_state = geoset_picks.create_state();
 
 /** The class the viewer dresses and customizes for: Demon Hunter or Other (any other class). */
 function selected_class_id(core) {
@@ -351,7 +355,8 @@ async function check_cond_model_swap(core) {
 
 /**
  * Updates all geoset visibility based on customization choices and equipped items.
- * Order: 1) Reset to model defaults, 2) Apply customization, 3) Apply equipment
+ * Order: 1) Reset to model defaults, 2) Apply customization, 3) Apply equipment,
+ * 4) the geosets picked by hand in Custom Geoset Control (#121)
  */
 function update_geosets(core) {
 	if (!active_renderer)
@@ -361,6 +366,18 @@ function update_geosets(core) {
 	if (!geosets || geosets.length === 0)
 		return;
 
+	geoset_picks.refresh(geoset_pick_state, geosets, rows => apply_baseline_geosets(core, rows));
+
+	// step 5: sync to renderer
+	active_renderer.updateGeosets();
+}
+
+/**
+ * Steps 1-3 of update_geosets: the geosets customization and gear give.
+ * @param {object} core
+ * @param {object[]} geosets - the Custom Geoset Control rows
+ */
+function apply_baseline_geosets(core, geosets) {
 	// steps 1+2: reset to defaults and apply customization geosets
 	character_appearance.apply_customization_geosets(geosets, core.view.chrCustActiveChoices);
 
@@ -423,9 +440,6 @@ function update_geosets(core) {
 			}
 		}
 	}
-
-	// step 4: sync to renderer
-	active_renderer.updateGeosets();
 }
 
 /**
@@ -1357,6 +1371,9 @@ async function update_model_selection(core) {
 
 	log.write('Model selection changed to ID %d', selected.id);
 
+	// a new character or body type: the last one's geoset picks go, a loaded save's come in (#121)
+	geoset_picks.start_character(geoset_pick_state, selected.id);
+
 	// an import that uses demon-hunter-only choices is a demon hunter: set the Class switch so
 	// they stay listed (the Battle.net import sets it from the armory before this)
 	if (state.chrImportChoices.length > 0 && state.chrImportTargetModelID === selected.id && !state.config.chrIsDemonHunter && choices_need_demon_hunter(state.chrImportChoices))
@@ -1944,6 +1961,7 @@ async function apply_import_data(core, data, source) {
 	expand_shoulder_slots(equipment, equipment_skins);
 
 	is_importing = true;
+	geoset_pick_state.pending = null;
 
 	try {
 		core.view.chrEquippedItems = { ...equipment };
@@ -2110,6 +2128,7 @@ async function load_character(core, character) {
 		core.view.chrImportChoices.push(...(data.choices || []));
 		core.view.chrImportChrModelID = data.model_id;
 		core.view.chrImportTargetModelID = data.model_id;
+		geoset_picks.queue_save(geoset_pick_state, data);
 
 		// apply race selection
 		const race = core.view.chrCustRaces.find(r => r.id === data.race_id);
@@ -2233,6 +2252,11 @@ function get_current_character_data(core) {
 	const skins = core.view.chrEquippedItemSkins;
 	if (skins && Object.keys(skins).length > 0)
 		data.equipment_skins = { ...skins };
+
+	// the geosets ticked or unticked by hand in Custom Geoset Control (#121)
+	const picks = geoset_picks.to_save(geoset_picks.current(geoset_pick_state, core.view.chrCustGeosets));
+	if (picks)
+		data.geoset_overrides = picks;
 
 	// the armory realm, so the print batch files the character under character/<realm>/<name>
 	if (core.view.chrCharacterRealm)
@@ -2375,6 +2399,10 @@ async function import_json_character(core, save_to_my_characters) {
 				if (Object.keys(equipment_skins).length > 0)
 					save_data.equipment_skins = equipment_skins;
 
+				const picks = geoset_picks.to_save(geoset_picks.from_save(data.geoset_overrides));
+				if (picks)
+					save_data.geoset_overrides = picks;
+
 				const save_path = path.join(dir, `${name}-${id}.json`);
 				await fsp.writeFile(save_path, JSON.stringify(save_data, null, '\t'));
 
@@ -2402,6 +2430,7 @@ async function import_json_character(core, save_to_my_characters) {
 				core.view.chrImportChoices.push(...(data.choices || []));
 				core.view.chrImportChrModelID = data.model_id;
 				core.view.chrImportTargetModelID = data.model_id;
+				geoset_picks.queue_save(geoset_pick_state, data);
 
 				const race = core.view.chrCustRaces.find(r => r.id === data.race_id);
 				if (race)
@@ -2929,6 +2958,7 @@ async function wear_outfit_on_default_character(core, job, worn) {
 		return false;
 
 	forget_character_name(core);
+	geoset_pick_state.pending = null;
 	state.chrEquippedItems = { ...worn.equipment };
 	state.chrEquippedItemSkins = { ...worn.skins };
 	state.chrImportChoices.splice(0, state.chrImportChoices.length);
