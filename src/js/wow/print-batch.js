@@ -8,11 +8,13 @@
 	  --print-export-all                      every saved character (the default set)
 	  --print-export=<name>                   one saved character by name; repeat for more
 	  --print-import=<region>/<realm>/<name>  import a character from the armory first; repeat
+	  --print-outfit=<file>                   every race and body type wearing an outfit file
+	                                          (src/js/wow/print-outfit.js, #107); repeat
 
-	With only --print-import, the run exports the imported characters; with no flag at all the
+	With only --print-import or --print-outfit, the run exports just those; with no flag at all the
 	app starts as usual. A malformed name or import flag is reported in the result and exports
 	nothing in its place (never every saved character). Each character goes to character/<realm>/<name>/ under the export
-	folder, `local` when it has no realm (built by hand), and the run writes
+	folder, `local` when it has no realm (built by hand), an outfit's to character/outfit/..., and the run writes
 	character/print-batch.json before it quits.
 */
 
@@ -22,18 +24,20 @@ const RESULT_FILE = 'print-batch.json';
 const FLAG_ALL = '--print-export-all';
 const FLAG_EXPORT = '--print-export=';
 const FLAG_IMPORT = '--print-import=';
+const FLAG_OUTFIT = '--print-outfit=';
 
 /**
  * The batch the start-up arguments ask for, or null for a normal start.
  * @param {string[]} argv - nw.App.argv
- * @returns {{all: boolean, names: string[], imports: {region: string, realm: string, name: string}[], errors: string[]}|null}
+ * @returns {{all: boolean, names: string[], imports: {region: string, realm: string, name: string}[], outfits: string[], errors: string[]}|null}
  */
 function parse_print_batch_args(argv) {
 	let all = false;
 	let any = false;
-	let named_any = false; // a --print-export or --print-import flag, usable or not
+	let named_any = false; // a --print-export, --print-import or --print-outfit flag, usable or not
 	const names = [];
 	const imports = [];
+	const outfits = [];
 	const errors = [];
 
 	for (const arg of argv || []) {
@@ -59,6 +63,14 @@ function parse_print_batch_args(argv) {
 				errors.push('expected <region>/<realm>/<name> in ' + arg);
 			else
 				imports.push({ region: parts[0].toLowerCase(), realm: realm_slug(parts[1]), name: parts[2] });
+		} else if (arg.startsWith(FLAG_OUTFIT)) {
+			any = true;
+			named_any = true;
+			const file = arg.slice(FLAG_OUTFIT.length).trim();
+			if (file.length === 0)
+				errors.push('empty file in ' + arg);
+			else if (!outfits.includes(file))
+				outfits.push(file);
 		}
 	}
 
@@ -70,7 +82,7 @@ function parse_print_batch_args(argv) {
 	if (!named_any)
 		all = true;
 
-	return { all, names, imports, errors };
+	return { all, names, imports, outfits, errors };
 }
 
 /**

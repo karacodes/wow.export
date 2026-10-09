@@ -276,6 +276,7 @@ const makeNewView = () => {
 		characterImportMode: 'none', // Controls visibility of character import interface ('none', 'BNET', 'WHEAD')
 		chrEquippedItems: {}, // Equipped items by slot id (e.g., { 1: item_id, 5: item_id })
 		chrEquippedItemSkins: {}, // Item skin selection by slot id (e.g., { 1: modifier_id })
+		chrOutfit: null, // the outfit file worn with Wear Outfit File (#107): { name, file, passes, pass }
 		chrGuildTabardConfig: { background: 0, border_style: 0, border_color: 0, emblem_design: 0, emblem_color: 0 },
 		chrEquipmentSlotContext: null, // Context menu node for equipment slot right-click
 		chrPendingEquipSlot: null, // Slot ID pending equip from character tab navigation

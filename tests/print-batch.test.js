@@ -16,12 +16,12 @@ test('no print flag is a normal start', () => {
 });
 
 test('--print-export-all exports every saved character', () => {
-	assert.deepEqual(parse_print_batch_args(['--print-export-all']), { all: true, names: [], imports: [], errors: [] });
+	assert.deepEqual(parse_print_batch_args(['--print-export-all']), { all: true, names: [], imports: [], outfits: [], errors: [] });
 });
 
 test('named characters are exported instead of all, each once', () => {
 	const batch = parse_print_batch_args(['--print-export=Lockspanner', '--print-export= Wrenz ', '--print-export=lockspanner']);
-	assert.deepEqual(batch, { all: false, names: ['Lockspanner', 'Wrenz'], imports: [], errors: [] });
+	assert.deepEqual(batch, { all: false, names: ['Lockspanner', 'Wrenz'], imports: [], outfits: [], errors: [] });
 });
 
 test('an armory import is parsed to region, realm slug and name', () => {
@@ -49,6 +49,18 @@ test('a rejected name or import flag never widens the run to every saved charact
 	assert.equal(parse_print_batch_args(['--print-import=bad', '--print-export=Wrenz']).all, false);
 	// asked for explicitly, all still holds next to a bad flag
 	assert.equal(parse_print_batch_args(['--print-export-all', '--print-import=bad']).all, true);
+});
+
+test('an outfit file exports only the outfit, not every saved character (#107)', () => {
+	const batch = parse_print_batch_args(['--print-outfit=/Users/kara/outfits/standard.json', '--print-outfit= /Users/kara/outfits/standard.json ']);
+	assert.deepEqual(batch, { all: false, names: [], imports: [], outfits: ['/Users/kara/outfits/standard.json'], errors: [] });
+});
+
+test('an empty outfit flag is reported and exports nothing else', () => {
+	const batch = parse_print_batch_args(['--print-outfit=']);
+	assert.equal(batch.all, false);
+	assert.deepEqual(batch.outfits, []);
+	assert.equal(batch.errors.length, 1);
 });
 
 test('realm names become armory slugs', () => {

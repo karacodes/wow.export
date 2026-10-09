@@ -3713,6 +3713,30 @@ input[type=number]::-webkit-outer-spin-button {
 	color: var(--font-alt-highlight);
 }
 
+.chr-outfit-passes {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 8px;
+	font-size: 14px;
+}
+
+.chr-outfit-passes > span {
+	color: var(--font-alt);
+	cursor: pointer;
+}
+
+.chr-outfit-passes > span.chr-outfit-name {
+	color: var(--font-primary);
+	cursor: default;
+}
+
+.chr-outfit-passes > span.selected,
+.chr-outfit-passes > span:hover:not(.chr-outfit-name) {
+	color: var(--font-alt-highlight);
+	text-decoration: underline;
+}
+
 .chr-randomize-toggle::before {
 	content: '';
 	display: inline-block;

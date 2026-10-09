@@ -38,6 +38,7 @@ const character_appearance = require('../ui/character-appearance');
 const { CLASS_DEMON_HUNTER, CLASS_OTHER, is_allowed_for_class } = require('../ui/customization-class');
 const { character_name: pick_character_name, armory_for_save, armory_from_save, save_name_suggestion } = require('../ui/character-name');
 const print_batch = require('../wow/print-batch');
+const print_outfit = require('../wow/print-outfit');
 const { BACK_SLOT, CAPE_TEXTURE_TYPE, cape_texture_for_display, character_variant_textures } = require('../wow/cape-texture');
 const random_equipment = require('../wow/random-equipment');
 const AnimMapper = require('../3D/AnimMapper');
@@ -1542,6 +1543,57 @@ async function randomize_equipment(core) {
 }
 
 /**
+ * Wear Outfit File (#107): put one pass of an outfit file on the character on screen, every
+ * other slot emptied, so the outfit can be looked at on any race before the unattended run
+ * (--print-outfit) exports it. The file is remembered, and its passes can be switched.
+ * @param {object} core
+ * @param {string} file_path
+ * @param {string} [pass_name] - the first pass when not given
+ */
+async function wear_outfit_file(core, file_path, pass_name) {
+	let outfit;
+	try {
+		outfit = await read_outfit_file(file_path);
+	} catch (e) {
+		log.write('Wear Outfit File: %s could not be read: %s', file_path, e.message);
+		core.setToast('error', `Could not read the outfit file: ${e.message}`, null, -1);
+		return;
+	}
+
+	const worn = print_outfit.pass_equipment(outfit, pass_name) ?? print_outfit.pass_equipment(outfit);
+	const pass = outfit.passes.find(p => p.name === pass_name) ?? outfit.passes[0];
+	core.view.chrEquippedItems = { ...worn.equipment };
+	core.view.chrEquippedItemSkins = { ...worn.skins };
+	core.view.chrOutfit = { name: outfit.name, file: file_path, passes: outfit.passes.map(p => p.name), pass: pass.name };
+
+	const problems = [...outfit.errors, ...outfit.warnings];
+	if (problems.length > 0) {
+		log.write('Wear Outfit File: %s: %s', file_path, problems.join('; '));
+		core.setToast(outfit.errors.length > 0 ? 'error' : 'info', `Outfit ${outfit.name} (${pass.name}): ${problems.join('; ')}`, null, -1);
+	} else {
+		core.setToast('success', `Wearing outfit ${outfit.name}, pass ${pass.name} (${Object.keys(worn.equipment).length} slots).`, null, 3000);
+	}
+}
+
+function pick_outfit_file(core) {
+	const file_input = document.createElement('input');
+	file_input.setAttribute('type', 'file');
+	file_input.setAttribute('accept', '.json');
+	file_input.setAttribute('nwworkingdir', core.view.config.lastOutfitPath || '');
+
+	file_input.addEventListener('change', async () => {
+		const file_path = file_input.files[0]?.path;
+		if (!file_path)
+			return;
+
+		core.view.config.lastOutfitPath = path.dirname(file_path);
+		await wear_outfit_file(core, file_path);
+	});
+
+	file_input.click();
+}
+
+/**
  * The Class setting changed: list only the options and choices the class may use, drop the
  * active choices it may not (a demon hunter's horns on an Other), give newly listed options
  * their default, then redraw. Without a model nothing is listed yet.
@@ -2847,17 +2899,110 @@ async function export_all_saved_for_printing(core) {
 }
 
 /**
+ * Read an outfit file (#107) and check its items against this game build: unknown items and
+ * unreadable entries are `errors`, an item in a slot it doesn't go in is a `warnings` entry.
+ * @param {string} file_path
+ * @returns {Promise<object>} the outfit (src/js/wow/print-outfit.js) with `file`, `errors` and `warnings`
+ */
+async function read_outfit_file(file_path) {
+	const text = await fsp.readFile(file_path, 'utf8');
+	const outfit = print_outfit.parse_outfit(text, path.basename(file_path, path.extname(file_path)));
+	const checked = print_outfit.check_items(outfit, item_id => DBItems.getItemSlotId(item_id));
+	outfit.file = file_path;
+	outfit.errors.push(...checked.errors);
+	outfit.warnings = checked.warnings;
+	return outfit;
+}
+
+/**
+ * Put an outfit pass on a fresh default character of one race and body type (#107): no name,
+ * the default choice for every customization, and only the outfit's items.
+ * @param {object} core
+ * @param {{race: {id: number}, chrModelID: number}} job - from print_outfit.outfit_jobs
+ * @param {{equipment: object, skins: object}} worn - from print_outfit.pass_equipment
+ * @returns {Promise<boolean>} true once the viewer shows that body type wearing the outfit
+ */
+async function wear_outfit_on_default_character(core, job, worn) {
+	const state = core.view;
+	const race = state.chrCustRaces.find(r => r.id === job.race.id);
+	if (!race)
+		return false;
+
+	forget_character_name(core);
+	state.chrEquippedItems = { ...worn.equipment };
+	state.chrEquippedItemSkins = { ...worn.skins };
+	state.chrImportChoices.splice(0, state.chrImportChoices.length);
+	state.chrImportTargetModelID = 0;
+
+	if (state.chrCustRaceSelection[0]?.id === race.id && state.chrCustModelSelection[0]?.id === job.chrModelID) {
+		// the body type on screen already: reload it so every customization is back to its default
+		await track(update_model_selection(core));
+	} else {
+		state.chrImportChrModelID = job.chrModelID;
+		state.chrCustRaceSelection = [race];
+	}
+
+	if (!await wait_until_idle(core))
+		return false;
+
+	return state.chrCustModelSelection[0]?.id === job.chrModelID;
+}
+
+/**
+ * The exports the batch's outfit files ask for (#107), each file read and checked first. A file
+ * that can't be read, or names an item this build doesn't have, exports nothing: its errors go
+ * in the result, so a typo never produces a set missing a piece.
+ * @param {object} core
+ * @param {string[]} files
+ * @param {string[]} errors - collects what went wrong
+ * @param {string[]} warnings - collects what looked wrong but was exported anyway
+ * @returns {Promise<object[]>} batch jobs of kind 'outfit'
+ */
+async function outfit_batch_jobs(core, files, errors, warnings) {
+	const jobs = [];
+	for (const file of files || []) {
+		const file_path = path.resolve(file);
+		let outfit;
+		try {
+			outfit = await read_outfit_file(file_path);
+		} catch (e) {
+			errors.push('outfit ' + file_path + ': ' + e.message);
+			continue;
+		}
+
+		warnings.push(...outfit.warnings.map(w => 'outfit ' + outfit.name + ': ' + w));
+		if (outfit.errors.length > 0) {
+			errors.push(...outfit.errors.map(e => 'outfit ' + outfit.name + ': ' + e));
+			log.write('Print batch: outfit %s not exported: %s', file_path, outfit.errors.join('; '));
+			continue;
+		}
+
+		const { races, unknown } = print_outfit.select_races(core.view.chrCustRacesPlayable, outfit);
+		for (const entry of unknown)
+			warnings.push('outfit ' + outfit.name + ': no playable race ' + JSON.stringify(entry));
+
+		for (const job of print_outfit.outfit_jobs(outfit, races, race_id => DBCharacterCustomization.get_race_models(race_id)))
+			jobs.push({ kind: 'outfit', label: job.label, outfit, job });
+
+		log.write('Print batch: outfit %s (%s), %d pass(es) on %d race(s)', outfit.name, file_path, outfit.passes.length, races.length);
+	}
+	return jobs;
+}
+
+/**
  * The print batch behind the Export All button and the unattended start-up flags (F12):
  * import the armory characters asked for, then load the saved ones asked for, and run
- * the print export on each into character/<realm>/<name>. Writes the result to
- * character/print-batch.json under the export folder and returns it.
+ * the print export on each into character/<realm>/<name>; then every race and body type
+ * wearing each outfit file asked for (#107), into character/outfit/<outfit>/<pass>/<race>-<sex>.
+ * Writes the result to character/print-batch.json under the export folder and returns it.
  * @param {object} core
- * @param {{all: boolean, names: string[], imports: {region: string, realm: string, name: string}[], errors: string[]}} batch
- * @returns {Promise<{ok: boolean, started: string, finished: string, errors: string[], characters: object[]}>}
+ * @param {{all: boolean, names: string[], imports: {region: string, realm: string, name: string}[], outfits?: string[], errors: string[]}} batch
+ * @returns {Promise<{ok: boolean, started: string, finished: string, errors: string[], warnings: string[], characters: object[]}>}
  */
 async function run_print_batch(core, batch) {
 	const started = new Date().toISOString();
 	const errors = [...(batch.errors || [])];
+	const warnings = [];
 	const characters = [];
 
 	await load_saved_characters(core);
@@ -2867,54 +3012,91 @@ async function run_print_batch(core, batch) {
 
 	const jobs = [
 		...(batch.imports || []).map(entry => ({ kind: 'armory', label: entry.region + '/' + entry.realm + '/' + entry.name, entry })),
-		...selected.map(character => ({ kind: 'saved', label: character.name, character }))
+		...selected.map(character => ({ kind: 'saved', label: character.name, character })),
+		...await outfit_batch_jobs(core, batch.outfits, errors, warnings)
 	];
+
+	// an outfit is worn by the default character of each race, so the class is always Other:
+	// the demon hunter's horns and tattoos never come and go with whoever exported last (an
+	// armory import of a demon hunter turns the switch on). The user's own setting comes back after.
+	const was_demon_hunter = core.view.config.chrIsDemonHunter;
 
 	core.view.chrSavedCharactersScreen = false;
 	log.write('Print batch: exporting %d character(s)', jobs.length);
 
-	for (let i = 0; i < jobs.length; i++) {
-		const job = jobs[i];
-		const row = { name: job.kind === 'saved' ? job.character.name : job.entry.name, source: job.kind, realm: null, folder: null, path: null, ok: false, error: null };
-		characters.push(row);
+	try {
+		for (let i = 0; i < jobs.length; i++) {
+			const job = jobs[i];
+			const row = { name: job.kind === 'saved' ? job.character.name : job.kind === 'armory' ? job.entry.name : job.job.race.label + ' ' + print_outfit.sex_label(job.job.sex), source: job.kind, realm: null, folder: null, path: null, ok: false, error: null };
+			if (job.kind === 'outfit')
+				Object.assign(row, { outfit: job.outfit.name, pass: job.job.pass, raceID: job.job.race.id, chrModelID: job.job.chrModelID });
+			characters.push(row);
 
-		core.setToast('progress', util.format('Print batch %d / %d: loading %s', i + 1, jobs.length, job.label), null, -1, false);
-		log.write('Print batch %d/%d: %s', i + 1, jobs.length, job.label);
+			core.setToast('progress', util.format('Print batch %d / %d: loading %s', i + 1, jobs.length, job.label), null, -1, false);
+			log.write('Print batch %d/%d: %s', i + 1, jobs.length, job.label);
 
-		if (job.kind === 'armory') {
-			if (!await import_from_armory(core, job.entry.region, job.entry.realm, job.entry.name)) {
-				row.error = 'armory import failed';
-				log.write('Print batch: %s could not be imported, skipped', job.label);
+			if (job.kind === 'outfit') {
+				if (core.view.config.chrIsDemonHunter)
+					core.view.config.chrIsDemonHunter = false;
+
+				if (!await wear_outfit_on_default_character(core, job.job, print_outfit.pass_equipment(job.outfit, job.job.pass))) {
+					row.error = 'the race and body type did not load';
+					log.write('Print batch: %s did not load, skipped', job.label);
+					continue;
+				}
+
+				if (!active_renderer?.m2) {
+					row.error = 'no model loaded';
+					log.write('Print batch: no model loaded for %s, skipped', job.label);
+					continue;
+				}
+
+				row.folder = job.job.folder;
+				row.path = ExportHelper.getExportPath(row.folder);
+				row.ok = await export_char_for_printing(core, core.openLastExportStream(), { dir: row.folder });
+				if (!row.ok)
+					row.error = 'export failed (see the runtime log)';
 				continue;
 			}
-		} else if (!await load_character(core, job.character)) {
-			// the viewer still holds the previous character: never export it under this name
-			row.error = 'saved character could not be read';
-			log.write('Print batch: %s could not be read, skipped', job.label);
-			continue;
+
+			if (job.kind === 'armory') {
+				if (!await import_from_armory(core, job.entry.region, job.entry.realm, job.entry.name)) {
+					row.error = 'armory import failed';
+					log.write('Print batch: %s could not be imported, skipped', job.label);
+					continue;
+				}
+			} else if (!await load_character(core, job.character)) {
+				// the viewer still holds the previous character: never export it under this name
+				row.error = 'saved character could not be read';
+				log.write('Print batch: %s could not be read, skipped', job.label);
+				continue;
+			}
+
+			if (!await wait_until_idle(core)) {
+				row.error = 'did not finish loading in time';
+				log.write('Print batch: %s did not finish loading in time, skipped', job.label);
+				continue;
+			}
+
+			if (!active_renderer?.m2) {
+				row.error = 'no model loaded';
+				log.write('Print batch: no model loaded for %s, skipped', job.label);
+				continue;
+			}
+
+			const named = pick_character_name(core.view.chrSavedCharacterName, core.view.chrArmoryCharacterName);
+			row.name = named.name || row.name;
+			row.realm = core.view.chrCharacterRealm || null;
+			row.folder = print_batch.character_folder(row.realm, row.name, job.character?.id);
+			row.path = ExportHelper.getExportPath(row.folder); // on disk (the removePathSpaces setting drops spaces)
+
+			row.ok = await export_char_for_printing(core, core.openLastExportStream(), { dir: row.folder });
+			if (!row.ok)
+				row.error = 'export failed (see the runtime log)';
 		}
-
-		if (!await wait_until_idle(core)) {
-			row.error = 'did not finish loading in time';
-			log.write('Print batch: %s did not finish loading in time, skipped', job.label);
-			continue;
-		}
-
-		if (!active_renderer?.m2) {
-			row.error = 'no model loaded';
-			log.write('Print batch: no model loaded for %s, skipped', job.label);
-			continue;
-		}
-
-		const named = pick_character_name(core.view.chrSavedCharacterName, core.view.chrArmoryCharacterName);
-		row.name = named.name || row.name;
-		row.realm = core.view.chrCharacterRealm || null;
-		row.folder = print_batch.character_folder(row.realm, row.name, job.character?.id);
-		row.path = ExportHelper.getExportPath(row.folder); // on disk (the removePathSpaces setting drops spaces)
-
-		row.ok = await export_char_for_printing(core, core.openLastExportStream(), { dir: row.folder });
-		if (!row.ok)
-			row.error = 'export failed (see the runtime log)';
+	} finally {
+		if (core.view.config.chrIsDemonHunter !== was_demon_hunter)
+			core.view.config.chrIsDemonHunter = was_demon_hunter;
 	}
 
 	const done = characters.filter(c => c.ok).length;
@@ -2926,6 +3108,7 @@ async function run_print_batch(core, batch) {
 		finished: new Date().toISOString(),
 		exportDir: ExportHelper.getExportPath(''),
 		errors,
+		warnings,
 		characters
 	};
 
@@ -3413,7 +3596,12 @@ module.exports = {
 					</component>
 					<div class="chr-cust-controls">
 						<span class="chr-randomize-toggle" @click="randomize_equipment">Randomize Equipment</span>
+						<span @click="wear_outfit_file" title="Put an outfit file's items on this character, as the unattended --print-outfit export does">Wear Outfit File</span>
 						<span @click="clear_all_equipment">Clear All Equipment</span>
+						<div v-if="$core.view.chrOutfit" class="chr-outfit-passes" :title="$core.view.chrOutfit.file">
+							<span class="chr-outfit-name">{{ $core.view.chrOutfit.name }}:</span>
+							<span v-for="pass in $core.view.chrOutfit.passes" :key="pass" :class="{ selected: pass === $core.view.chrOutfit.pass }" @click="wear_outfit_pass(pass)">{{ pass }}</span>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -3508,6 +3696,17 @@ module.exports = {
 
 		async randomize_equipment() {
 			await randomize_equipment(this.$core);
+		},
+
+		wear_outfit_file() {
+			pick_outfit_file(this.$core);
+		},
+
+		// re-reads the file, so an edit to it shows on the next click
+		async wear_outfit_pass(pass) {
+			const outfit = this.$core.view.chrOutfit;
+			if (outfit)
+				await wear_outfit_file(this.$core, outfit.file, pass);
 		},
 
 		set_all_geosets(state) {
@@ -3702,6 +3901,7 @@ module.exports = {
 		clear_all_equipment() {
 			this.$core.view.chrEquippedItems = {};
 			this.$core.view.chrEquippedItemSkins = {};
+			this.$core.view.chrOutfit = null;
 		},
 
 		get_item_skin_count(slot_id) {
