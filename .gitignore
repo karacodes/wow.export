@@ -14,3 +14,7 @@
 
 # python cache folders
 __pycache__
+
+# Temp files bun build --compile leaves behind, and macOS folder metadata.
+*.bun-build
+.DS_Store

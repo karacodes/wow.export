@@ -71,6 +71,17 @@ const applyPlaceholders = (value, placeholders) => {
 // Create a promisified version of zlib.deflate.
 const deflateBuffer = util.promisify(zlib.deflate);
 
+/**
+ * Remove the `.<hash>-00000000.bun-build` temp files `bun build --compile` can leave in the
+ * working directory, so they don't pile up across builds.
+ */
+const removeBunBuildLeftovers = async () => {
+	for (const entry of await fs.readdir('.')) {
+		if (entry.startsWith('.') && entry.endsWith('.bun-build'))
+			await fs.rm(entry, { force: true });
+	}
+};
+
 (async () => {
 	const config = await Bun.file(CONFIG_FILE).json();
 	const outDir = path.resolve(config.outputDirectory);
@@ -106,6 +117,7 @@ const deflateBuffer = util.promisify(zlib.deflate);
 	}
 
 	const allBuildsStart = Date.now();
+	await removeBunBuildLeftovers();
 	log.info('Selected builds: %s', log_colour_array(targetBuilds));
 
 	let last_addon_arch = null;
@@ -654,6 +666,8 @@ const deflateBuffer = util.promisify(zlib.deflate);
 		const buildElapsed = (Date.now() - buildStart) / 1000;
 		log.success('Build *%s* completed in *%ds*', build.name, buildElapsed);
 	}
+
+	await removeBunBuildLeftovers();
 
 	const allBuildsElapsed = (Date.now() - allBuildsStart) / 1000;
 	log.success('*%d* builds completed in *%ds*!', targetBuilds.length, allBuildsElapsed);
