@@ -321,19 +321,26 @@ function outfit_folder(outfit_name, pass_name, race_label, sex) {
 function outfit_jobs(outfit, races, race_models) {
 	const jobs = [];
 	for (const pass of outfit.passes) {
+		const used = new Set();
 		for (const race of races) {
 			const models = race_models(race.id);
 			if (!models)
 				continue;
 
 			for (const [sex, chr_model_id] of [...models.entries()].sort((a, b) => a[0] - b[0])) {
+				// two races with one name (a visage form) get their race id in the folder
+				let folder = outfit_folder(outfit.name, pass.name, race.label, sex);
+				if (used.has(folder))
+					folder = outfit_folder(outfit.name, pass.name, race.label + ' ' + race.id, sex);
+				used.add(folder);
+
 				jobs.push({
 					pass: pass.name,
 					race,
 					sex,
 					chrModelID: chr_model_id,
 					label: outfit.name + '/' + pass.name + ': ' + race.label + ' ' + sex_label(sex),
-					folder: outfit_folder(outfit.name, pass.name, race.label, sex)
+					folder
 				});
 			}
 		}

@@ -108,6 +108,13 @@ test('one export per pass, race and body type, each in its own folder', () => {
 	assert.equal(jobs[1].label, 'standard/cloak: Blood Elf female');
 });
 
+test('two races with one name never share a folder', () => {
+	const outfit = outfit_lib.parse_outfit({ items: {} });
+	const races = [{ id: 22, label: 'Worgen' }, { id: 23, label: 'Worgen' }];
+	const jobs = outfit_lib.outfit_jobs(outfit, races, () => new Map([[0, 1]]));
+	assert.deepEqual(jobs.map(j => j.folder), ['character/outfit/outfit/outfit/worgen-male', 'character/outfit/outfit/outfit/worgen-23-male']);
+});
+
 test('folder names keep letters, digits and dashes only', () => {
 	assert.equal(outfit_lib.outfit_folder('Standard Set!', 'Cloak', "Zandalari Troll", 1), 'character/outfit/standard-set/cloak/zandalari-troll-female');
 	assert.equal(outfit_lib.outfit_folder('', '', "Kul Tiran", 0), 'character/outfit/outfit/outfit/kul-tiran-male');

@@ -3017,28 +3017,64 @@ async function run_print_batch(core, batch) {
 	];
 
 	// an outfit is worn by the default character of each race, so the class is always Other:
-	// the demon hunter's horns and tattoos never come and go with whoever exported last
+	// the demon hunter's horns and tattoos never come and go with whoever exported last (an
+	// armory import of a demon hunter turns the switch on). The user's own setting comes back after.
 	const was_demon_hunter = core.view.config.chrIsDemonHunter;
-	if (was_demon_hunter && jobs.some(job => job.kind === 'outfit'))
-		core.view.config.chrIsDemonHunter = false;
 
 	core.view.chrSavedCharactersScreen = false;
 	log.write('Print batch: exporting %d character(s)', jobs.length);
 
-	for (let i = 0; i < jobs.length; i++) {
-		const job = jobs[i];
-		const row = { name: job.kind === 'saved' ? job.character.name : job.kind === 'armory' ? job.entry.name : job.job.race.label + ' ' + print_outfit.sex_label(job.job.sex), source: job.kind, realm: null, folder: null, path: null, ok: false, error: null };
-		if (job.kind === 'outfit')
-			Object.assign(row, { outfit: job.outfit.name, pass: job.job.pass, raceID: job.job.race.id, chrModelID: job.job.chrModelID });
-		characters.push(row);
+	try {
+		for (let i = 0; i < jobs.length; i++) {
+			const job = jobs[i];
+			const row = { name: job.kind === 'saved' ? job.character.name : job.kind === 'armory' ? job.entry.name : job.job.race.label + ' ' + print_outfit.sex_label(job.job.sex), source: job.kind, realm: null, folder: null, path: null, ok: false, error: null };
+			if (job.kind === 'outfit')
+				Object.assign(row, { outfit: job.outfit.name, pass: job.job.pass, raceID: job.job.race.id, chrModelID: job.job.chrModelID });
+			characters.push(row);
 
-		core.setToast('progress', util.format('Print batch %d / %d: loading %s', i + 1, jobs.length, job.label), null, -1, false);
-		log.write('Print batch %d/%d: %s', i + 1, jobs.length, job.label);
+			core.setToast('progress', util.format('Print batch %d / %d: loading %s', i + 1, jobs.length, job.label), null, -1, false);
+			log.write('Print batch %d/%d: %s', i + 1, jobs.length, job.label);
 
-		if (job.kind === 'outfit') {
-			if (!await wear_outfit_on_default_character(core, job.job, print_outfit.pass_equipment(job.outfit, job.job.pass))) {
-				row.error = 'the race and body type did not load';
-				log.write('Print batch: %s did not load, skipped', job.label);
+			if (job.kind === 'outfit') {
+				if (core.view.config.chrIsDemonHunter)
+					core.view.config.chrIsDemonHunter = false;
+
+				if (!await wear_outfit_on_default_character(core, job.job, print_outfit.pass_equipment(job.outfit, job.job.pass))) {
+					row.error = 'the race and body type did not load';
+					log.write('Print batch: %s did not load, skipped', job.label);
+					continue;
+				}
+
+				if (!active_renderer?.m2) {
+					row.error = 'no model loaded';
+					log.write('Print batch: no model loaded for %s, skipped', job.label);
+					continue;
+				}
+
+				row.folder = job.job.folder;
+				row.path = ExportHelper.getExportPath(row.folder);
+				row.ok = await export_char_for_printing(core, core.openLastExportStream(), { dir: row.folder });
+				if (!row.ok)
+					row.error = 'export failed (see the runtime log)';
+				continue;
+			}
+
+			if (job.kind === 'armory') {
+				if (!await import_from_armory(core, job.entry.region, job.entry.realm, job.entry.name)) {
+					row.error = 'armory import failed';
+					log.write('Print batch: %s could not be imported, skipped', job.label);
+					continue;
+				}
+			} else if (!await load_character(core, job.character)) {
+				// the viewer still holds the previous character: never export it under this name
+				row.error = 'saved character could not be read';
+				log.write('Print batch: %s could not be read, skipped', job.label);
+				continue;
+			}
+
+			if (!await wait_until_idle(core)) {
+				row.error = 'did not finish loading in time';
+				log.write('Print batch: %s did not finish loading in time, skipped', job.label);
 				continue;
 			}
 
@@ -3048,52 +3084,20 @@ async function run_print_batch(core, batch) {
 				continue;
 			}
 
-			row.folder = job.job.folder;
-			row.path = ExportHelper.getExportPath(row.folder);
+			const named = pick_character_name(core.view.chrSavedCharacterName, core.view.chrArmoryCharacterName);
+			row.name = named.name || row.name;
+			row.realm = core.view.chrCharacterRealm || null;
+			row.folder = print_batch.character_folder(row.realm, row.name, job.character?.id);
+			row.path = ExportHelper.getExportPath(row.folder); // on disk (the removePathSpaces setting drops spaces)
+
 			row.ok = await export_char_for_printing(core, core.openLastExportStream(), { dir: row.folder });
 			if (!row.ok)
 				row.error = 'export failed (see the runtime log)';
-			continue;
 		}
-
-		if (job.kind === 'armory') {
-			if (!await import_from_armory(core, job.entry.region, job.entry.realm, job.entry.name)) {
-				row.error = 'armory import failed';
-				log.write('Print batch: %s could not be imported, skipped', job.label);
-				continue;
-			}
-		} else if (!await load_character(core, job.character)) {
-			// the viewer still holds the previous character: never export it under this name
-			row.error = 'saved character could not be read';
-			log.write('Print batch: %s could not be read, skipped', job.label);
-			continue;
-		}
-
-		if (!await wait_until_idle(core)) {
-			row.error = 'did not finish loading in time';
-			log.write('Print batch: %s did not finish loading in time, skipped', job.label);
-			continue;
-		}
-
-		if (!active_renderer?.m2) {
-			row.error = 'no model loaded';
-			log.write('Print batch: no model loaded for %s, skipped', job.label);
-			continue;
-		}
-
-		const named = pick_character_name(core.view.chrSavedCharacterName, core.view.chrArmoryCharacterName);
-		row.name = named.name || row.name;
-		row.realm = core.view.chrCharacterRealm || null;
-		row.folder = print_batch.character_folder(row.realm, row.name, job.character?.id);
-		row.path = ExportHelper.getExportPath(row.folder); // on disk (the removePathSpaces setting drops spaces)
-
-		row.ok = await export_char_for_printing(core, core.openLastExportStream(), { dir: row.folder });
-		if (!row.ok)
-			row.error = 'export failed (see the runtime log)';
+	} finally {
+		if (core.view.config.chrIsDemonHunter !== was_demon_hunter)
+			core.view.config.chrIsDemonHunter = was_demon_hunter;
 	}
-
-	if (core.view.config.chrIsDemonHunter !== was_demon_hunter)
-		core.view.config.chrIsDemonHunter = was_demon_hunter;
 
 	const done = characters.filter(c => c.ok).length;
 	log.write('Print batch finished: %d of %d exported%s', done, characters.length, done < characters.length ? ', failed: ' + characters.filter(c => !c.ok).map(c => c.name).join(', ') : '');
