@@ -1012,11 +1012,13 @@ function geoset_choice_labels(core) {
 
 	for (const option of DBCharacterCustomization.get_options_for_model(model_id) || []) {
 		for (const choice of DBCharacterCustomization.get_choices_for_option(option.id) || []) {
-			const geoset_id = DBCharacterCustomization.get_choice_geoset_id(choice.id);
-			if (geoset_id === undefined || geoset_id === 0 || out[geoset_id] !== undefined)
-				continue;
+			// every geoset the choice names (#122), not only one of them
+			for (const geoset_id of DBCharacterCustomization.get_choice_geoset_ids(choice.id)) {
+				if (geoset_id === 0 || out[geoset_id] !== undefined)
+					continue;
 
-			out[geoset_id] = { optionID: option.id, option: option.label ?? null, choiceID: choice.id, choice: choice.label ?? null };
+				out[geoset_id] = { optionID: option.id, option: option.label ?? null, choiceID: choice.id, choice: choice.label ?? null };
+			}
 		}
 	}
 

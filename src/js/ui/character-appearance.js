@@ -5,6 +5,7 @@
  */
 const CharMaterialRenderer = require('../3D/renderers/CharMaterialRenderer');
 const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization');
+const customization_geosets = require('../wow/customization-geosets');
 
 // m2 texture types built from the composited character skin; every other
 // replaceable type binds its raw source texture directly (matches
@@ -38,30 +39,12 @@ function apply_customization_geosets(geosets, active_choices) {
 		geoset.checked = is_default && !is_hidden_default;
 	}
 
-	// apply customization geosets
-	for (const active_choice of active_choices) {
-		const available_choices = DBCharacterCustomization.get_choices_for_option(active_choice.optionID);
-		if (!available_choices)
-			continue;
-
-		for (const available_choice of available_choices) {
-			const chr_cust_geo_id = DBCharacterCustomization.get_choice_geoset_raw(available_choice.id);
-			const geoset_id = DBCharacterCustomization.get_geoset_value(chr_cust_geo_id);
-
-			if (geoset_id === undefined)
-				continue;
-
-			for (const geoset of geosets) {
-				if (geoset.id === 0)
-					continue;
-
-				if (geoset.id === geoset_id) {
-					const should_be_checked = available_choice.id === active_choice.choiceID;
-					geoset.checked = should_be_checked;
-				}
-			}
-		}
-	}
+	// apply customization geosets: every geoset row of a picked choice, conditional rows only
+	// while their related choice is picked too (#122)
+	customization_geosets.apply_choice_geosets(geosets, active_choices,
+		option_id => DBCharacterCustomization.get_choices_for_option(option_id),
+		choice_id => DBCharacterCustomization.get_choice_geoset_elements(choice_id),
+		chr_cust_geo_id => DBCharacterCustomization.get_geoset_value(chr_cust_geo_id));
 }
 
 /**
