@@ -155,6 +155,8 @@ const SLOT_TO_ATTACHMENT = {
 	17: [ATTACHMENT_ID.HAND_LEFT, ATTACHMENT_ID.SHIELD]             // off-hand (weapon or shield)
 };
 
+const INVENTORY_TYPE_SHIELD = 14;
+
 const get_slot_id_for_inventory_type = (inventory_type) => {
 	return INVENTORY_TYPE_TO_SLOT_ID[inventory_type] ?? null;
 };
@@ -169,6 +171,19 @@ const get_slot_name = (slot_id) => {
 
 const get_attachment_ids_for_slot = (slot_id) => {
 	return SLOT_TO_ATTACHMENT[slot_id] ?? null;
+};
+
+// attachment IDs for one equipped item: the slot's list, except that a bow is held in the
+// left hand despite being a main-hand item, and a shield hangs on the forearm's Shield point
+// rather than in the left palm (its single model would otherwise take the slot's first entry)
+const get_attachment_ids_for_item = (slot_id, { inventory_type, is_bow } = {}) => {
+	if (slot_id === 16 && is_bow)
+		return [ATTACHMENT_ID.HAND_LEFT];
+
+	if (slot_id === 17 && inventory_type === INVENTORY_TYPE_SHIELD)
+		return [ATTACHMENT_ID.SHIELD];
+
+	return get_attachment_ids_for_slot(slot_id) || [];
 };
 
 const get_slot_layer = (slot_id) => {
@@ -189,5 +204,6 @@ module.exports = {
 	get_slot_id_for_wmv_slot,
 	get_slot_name,
 	get_attachment_ids_for_slot,
+	get_attachment_ids_for_item,
 	get_slot_layer
 };
