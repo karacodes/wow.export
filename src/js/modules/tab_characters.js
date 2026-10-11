@@ -24,7 +24,7 @@ const { wowhead_parse } = require('../wowhead');
 const InstallType = require('../install-type');
 const charTextureOverlay = require('../ui/char-texture-overlay');
 const PNGWriter = require('../png-writer');
-const { EQUIPMENT_SLOTS, SHOULDER_SLOT_L, SHOULDER_SLOT_R, ATTACHMENT_ID, get_slot_name, get_attachment_ids_for_slot, get_slot_layer } = require('../wow/EquipmentSlots');
+const { EQUIPMENT_SLOTS, SHOULDER_SLOT_L, SHOULDER_SLOT_R, ATTACHMENT_ID, get_slot_name, get_attachment_ids_for_item, get_slot_layer } = require('../wow/EquipmentSlots');
 const DBItems = require('../db/caches/DBItems');
 const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
 const DBItemGeosets = require('../db/caches/DBItemGeosets');
@@ -764,11 +764,12 @@ async function update_equipment_models(core) {
 		if (!display || !display.models || display.models.length === 0)
 			continue;
 
-		// get attachment IDs for this slot (may be empty for body slots)
-		// bows are held in the left hand despite being main-hand items
-		let attachment_ids = get_attachment_ids_for_slot(slot_id) || [];
-		if (slot_id === 16 && DBItems.isItemBow(item_id))
-			attachment_ids = [ATTACHMENT_ID.HAND_LEFT];
+		// get attachment IDs for this item (may be empty for body slots)
+		// bows are held in the left hand, shields hang on the forearm
+		const attachment_ids = get_attachment_ids_for_item(slot_id, {
+			inventory_type: DBItems.getItemById(item_id)?.inventoryType,
+			is_bow: DBItems.isItemBow(item_id)
+		});
 
 		// split models into attachment vs collection
 		// attachment models: up to attachment_ids.length models get attached, except

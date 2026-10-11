@@ -22,7 +22,7 @@ const DBItemModels = require('../db/caches/DBItemModels');
 const DBItemGeosets = require('../db/caches/DBItemGeosets');
 const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
 const DBItems = require('../db/caches/DBItems');
-const { get_slot_name, get_attachment_ids_for_slot, get_slot_layer, ATTACHMENT_ID } = require('../wow/EquipmentSlots');
+const { get_slot_name, get_attachment_ids_for_item, get_slot_layer } = require('../wow/EquipmentSlots');
 
 const textureRibbon = require('../ui/texture-ribbon');
 const textureExporter = require('../ui/texture-exporter');
@@ -375,10 +375,11 @@ const apply_creature_equipment_models = async (core) => {
 		if (!display?.models || display.models.length === 0)
 			continue;
 
-		// bows held in left hand
-		let attachment_ids = get_attachment_ids_for_slot(slot_id) || [];
-		if (slot_id === 16 && entry.item_id && DBItems.isItemBow(entry.item_id))
-			attachment_ids = [ATTACHMENT_ID.HAND_LEFT];
+		// bows held in left hand, shields on the forearm
+		const attachment_ids = get_attachment_ids_for_item(slot_id, {
+			inventory_type: entry.item_id ? DBItems.getItemById(entry.item_id)?.inventoryType : undefined,
+			is_bow: !!entry.item_id && DBItems.isItemBow(entry.item_id)
+		});
 
 		const attachment_model_count = Math.min(display.models.length, attachment_ids.length);
 		const collection_start_index = attachment_model_count;
