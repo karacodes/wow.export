@@ -292,7 +292,7 @@ const export_preview = async (core, format, canvas, export_name, export_subdir =
 
 		await buf.writeToFile(out_file);
 		await export_paths?.writeLine('PNG:' + out_file);
-		export_paths?.close();
+		await export_paths?.close();
 
 		log.write('Saved 3D preview screenshot to %s', out_file);
 		core.setToast('success', util.format('Successfully exported preview to %s', out_file), { 'View in Explorer': () => nw.Shell.openItem(out_dir) }, -1);

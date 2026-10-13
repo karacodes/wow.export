@@ -2861,7 +2861,7 @@ function print_export_geoset_mask(core) {
 async function export_char_for_printing(core, export_paths, options = {}) {
 	if (!active_renderer?.m2) {
 		core.setToast('error', 'no character model loaded to export', null, -1);
-		export_paths?.close();
+		await export_paths?.close();
 		return false;
 	}
 
@@ -2897,7 +2897,7 @@ async function export_char_for_printing(core, export_paths, options = {}) {
 	}
 
 	helper.finish();
-	export_paths?.close();
+	await export_paths?.close();
 	return helper.succeeded === helper.count;
 }
 
@@ -3194,7 +3194,7 @@ const export_char_model = async (core) => {
 			core.setToast('error', 'the selected export option only works for character previews. preview something first!', null, -1);
 		}
 
-		export_paths?.close();
+		await export_paths?.close();
 		return;
 	}
 
@@ -3208,7 +3208,7 @@ const export_char_model = async (core) => {
 
 	if ((format === 'OBJ' || format === 'STL') && !active_renderer?.m2) {
 		core.setToast('error', 'no character model loaded to export', null, -1);
-		export_paths?.close();
+		await export_paths?.close();
 		return;
 	}
 
@@ -3231,7 +3231,7 @@ const export_char_model = async (core) => {
 	}
 
 	helper.finish();
-	export_paths?.close();
+	await export_paths?.close();
 };
 
 const export_chr_texture = async (core) => {
@@ -3257,7 +3257,7 @@ const export_chr_texture = async (core) => {
 
 	if (!chr_material) {
 		core.setToast('error', 'unable to find material for active texture', null, -1);
-		export_paths?.close();
+		await export_paths?.close();
 		return;
 	}
 
@@ -3283,7 +3283,7 @@ const export_chr_texture = async (core) => {
 	log.write('exported character texture to %s', export_path);
 	core.setToast('success', util.format('exported texture to %s', export_path), { 'view in explorer': () => nw.Shell.openItem(out_dir) }, -1);
 
-	export_paths?.close();
+	await export_paths?.close();
 };
 
 //endregion

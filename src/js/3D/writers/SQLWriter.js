@@ -226,7 +226,7 @@ class SQLWriter {
 		const sql = this.toSQL();
 		await writer.writeLine(sql);
 
-		writer.close();
+		await writer.close();
 	}
 }
 

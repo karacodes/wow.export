@@ -615,7 +615,7 @@ module.exports = {
 
 				const export_paths = this.$core.openLastExportStream();
 				await export_paths?.writeLine('png:' + out_path);
-				export_paths?.close();
+				await export_paths?.close();
 
 				helper.mark(relative_path, true);
 			} catch (e) {
@@ -681,7 +681,7 @@ module.exports = {
 				}
 			}
 
-			export_paths?.close();
+			await export_paths?.close();
 			ADTExporter.clearCache();
 			helper.finish();
 		},
@@ -714,7 +714,7 @@ module.exports = {
 				}
 			}
 
-			export_paths?.close();
+			await export_paths?.close();
 			ADTExporter.clearCache();
 			helper.finish();
 		},
@@ -813,7 +813,7 @@ module.exports = {
 
 				const export_paths = this.$core.openLastExportStream();
 				await export_paths?.writeLine('png:' + out_path);
-				export_paths?.close();
+				await export_paths?.close();
 
 				helper.mark(path.join('maps', selected_map_dir, filename), true);
 
@@ -864,7 +864,7 @@ module.exports = {
 				}
 			}
 
-			export_paths?.close();
+			await export_paths?.close();
 			helper.finish();
 		},
 
@@ -1041,7 +1041,7 @@ module.exports = {
 				}
 			}
 
-			export_paths?.close();
+			await export_paths?.close();
 			helper.finish();
 		}
 	},

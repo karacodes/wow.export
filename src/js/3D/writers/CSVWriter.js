@@ -79,7 +79,7 @@ class CSVWriter {
 			await writer.writeLine(rowOut.join(';'));
 		}
 
-		writer.close();
+		await writer.close();
 	}
 }
 

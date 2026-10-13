@@ -135,7 +135,7 @@ const export_files = async (core, entries, export_id = -1) => {
 			core.setToast('error', 'The selected export option only works for model previews. Preview something first!', null, -1);
 		}
 
-		export_paths?.close();
+		await export_paths?.close();
 		return;
 	}
 
@@ -186,7 +186,7 @@ const export_files = async (core, entries, export_id = -1) => {
 	}
 
 	helper.finish();
-	export_paths?.close();
+	await export_paths?.close();
 };
 
 const apply_filters = (core) => {
