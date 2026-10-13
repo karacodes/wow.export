@@ -7,7 +7,8 @@
 
 /**
  * The scale keys to write for one bone in one animation. Bones such as the shoulder
- * attachments often carry scale keys only in animation 0 (Stand); the viewer then holds
+ * attachments often carry scale keys only in animation 0 (usually Stand; on the void elf
+ * models it is Attack2H or Ready1H); the viewer then holds
  * animation 0's first scale key in every other animation (M2RendererGL has_scale_fallback),
  * so the glTF does the same. The inherited key is written at the start and the end of the
  * clip (once when the clip has no duration), so the bone holds it for the whole animation.
