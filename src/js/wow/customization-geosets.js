@@ -6,7 +6,8 @@
 	have several ChrCustomizationElement rows with a geoset, and a row with a
 	RelatedChrCustomizationChoiceID only counts while that other choice is also picked (the
 	same rule apply_customization_textures follows for material rows). The old cache kept one
-	geoset per choice, the last row read, so the rest of a choice's geosets never showed.
+	geoset per choice, the last row read, so the rest of a choice's geosets never showed. A group
+	a picked choice shows a geoset in drops its other geosets, the ..01 default too (wow-to-stl #226).
 */
 
 /**
@@ -61,10 +62,22 @@ function all_geosets(elements) {
 }
 
 /**
+ * Geoset group of a geoset id (Hair 5 = 0, Jaw 102 = 1, Sleeves 803 = 8).
+ * @param {number} id
+ * @returns {number}
+ */
+const group_of = id => Math.floor(id / 100);
+
+/**
  * Turn the active choices' geosets on and the other choices' geosets of the same options off.
  * Everything an option's choices name is switched off first and the picked choices' geosets
  * on after, so a geoset two choices share ends up on when the picked one has it, whatever
  * order the choices come in.
+ *
+ * A group a picked choice shows a geoset in keeps only the picked geosets: the rest of the
+ * group (ids group*100+1..+99, the range the equipment pass hides) goes off, so the group's
+ * ..01 default no longer shows under it (wow-to-stl #226). A choice's plain variant usually
+ * has no element row, so the default is not among the geosets any choice names.
  * @param {Array<{id: number, checked: boolean}>} geosets - geoset checkbox rows, mutated
  * @param {Array<{optionID: number, choiceID: number}>} active_choices
  * @param {(option_id: number) => Array<{id: number}>|undefined} choices_for_option
@@ -93,6 +106,12 @@ function apply_choice_geosets(geosets, active_choices, choices_for_option, choic
 		}
 	}
 
+	const on_groups = new Set();
+	for (const id of on) {
+		if (id > 0)
+			on_groups.add(group_of(id));
+	}
+
 	for (const geoset of geosets) {
 		if (geoset.id === 0)
 			continue;
@@ -101,7 +120,9 @@ function apply_choice_geosets(geosets, active_choices, choices_for_option, choic
 			geoset.checked = true;
 		else if (off.has(geoset.id))
 			geoset.checked = false;
+		else if (on_groups.has(group_of(geoset.id)) && geoset.id % 100 !== 0)
+			geoset.checked = false;
 	}
 }
 
-module.exports = { add_element, active_geosets, all_geosets, apply_choice_geosets };
+module.exports = { add_element, active_geosets, all_geosets, apply_choice_geosets, group_of };

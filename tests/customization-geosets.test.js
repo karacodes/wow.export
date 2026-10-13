@@ -5,8 +5,9 @@
 	Regression test for wow-to-stl #122: a customization choice with several
 	ChrCustomizationElement geoset rows turns every one of them on (the cache kept only the last
 	row), a row tied to another choice (RelatedChrCustomizationChoiceID) only while that choice is
-	picked, and the sidecar names every geoset of the choice. The game tables are small fakes fed
-	to the real DBCharacterCustomization cache. Run with `node --test tests/*.test.js` or `bun test`.
+	picked, and the sidecar names every geoset of the choice. Also wow-to-stl #226: a picked
+	choice's geoset hides the rest of its group, the ..01 default too, when the plain variant has
+	no element row. The game tables are small fakes fed to the real DBCharacterCustomization cache. Run with `node --test tests/*.test.js` or `bun test`.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,6 +20,8 @@ const src = (...parts) => path.join(__dirname, '..', 'src', 'js', ...parts);
 //                           choice 101 "Short" names hair 6 only
 //   option 20 "Ears":       choice 200 "Long" names ears 702, and ear rings 2402 only while
 //                           Braids (100) is picked; choice 201 "Short" names 703
+//   option 30 "Jaw Features": choice 300 "Closed" has no element row (the model's jaw 101);
+//                           choice 301 "Cheeky Slackjaw" names jaw 102 (an Undead's)
 const TABLES = {
 	TextureFileData: [],
 	ChrCustomizationCondModel: [],
@@ -33,13 +36,16 @@ const TABLES = {
 	ChrModel: [[1, { DisplayID: 1, CharComponentTextureLayoutID: 1 }]],
 	ChrCustomizationOption: [
 		[10, { ChrModelID: 1, Name_lang: 'Hair Style', OrderIndex: 0, Flags: 0, Requirement: 0 }],
-		[20, { ChrModelID: 1, Name_lang: 'Ears', OrderIndex: 1, Flags: 0, Requirement: 0 }]
+		[20, { ChrModelID: 1, Name_lang: 'Ears', OrderIndex: 1, Flags: 0, Requirement: 0 }],
+		[30, { ChrModelID: 1, Name_lang: 'Jaw Features', OrderIndex: 2, Flags: 0, Requirement: 0 }]
 	],
 	ChrCustomizationChoice: [
 		[100, { ChrCustomizationOptionID: 10, Name_lang: 'Braids', OrderIndex: 0, ChrCustomizationReqID: 0 }],
 		[101, { ChrCustomizationOptionID: 10, Name_lang: 'Short', OrderIndex: 1, ChrCustomizationReqID: 0 }],
 		[200, { ChrCustomizationOptionID: 20, Name_lang: 'Long', OrderIndex: 0, ChrCustomizationReqID: 0 }],
-		[201, { ChrCustomizationOptionID: 20, Name_lang: 'Short', OrderIndex: 1, ChrCustomizationReqID: 0 }]
+		[201, { ChrCustomizationOptionID: 20, Name_lang: 'Short', OrderIndex: 1, ChrCustomizationReqID: 0 }],
+		[300, { ChrCustomizationOptionID: 30, Name_lang: 'Closed', OrderIndex: 0, ChrCustomizationReqID: 0 }],
+		[301, { ChrCustomizationOptionID: 30, Name_lang: 'Cheeky Slackjaw', OrderIndex: 1, ChrCustomizationReqID: 0 }]
 	],
 	// ChrCustomizationGeoset id -> GeosetType / GeosetID
 	ChrCustomizationGeoset: [
@@ -48,7 +54,8 @@ const TABLES = {
 		[3, { GeosetType: 0, GeosetID: 6 }],
 		[4, { GeosetType: 7, GeosetID: 2 }],
 		[5, { GeosetType: 24, GeosetID: 2 }],
-		[6, { GeosetType: 7, GeosetID: 3 }]
+		[6, { GeosetType: 7, GeosetID: 3 }],
+		[7, { GeosetType: 1, GeosetID: 2 }]
 	],
 	ChrCustomizationElement: [
 		[1, { ChrCustomizationChoiceID: 100, RelatedChrCustomizationChoiceID: 0, ChrCustomizationGeosetID: 1 }],
@@ -56,7 +63,8 @@ const TABLES = {
 		[3, { ChrCustomizationChoiceID: 101, RelatedChrCustomizationChoiceID: 0, ChrCustomizationGeosetID: 3 }],
 		[4, { ChrCustomizationChoiceID: 200, RelatedChrCustomizationChoiceID: 0, ChrCustomizationGeosetID: 4 }],
 		[5, { ChrCustomizationChoiceID: 200, RelatedChrCustomizationChoiceID: 100, ChrCustomizationGeosetID: 5 }],
-		[6, { ChrCustomizationChoiceID: 201, RelatedChrCustomizationChoiceID: 0, ChrCustomizationGeosetID: 6 }]
+		[6, { ChrCustomizationChoiceID: 201, RelatedChrCustomizationChoiceID: 0, ChrCustomizationGeosetID: 6 }],
+		[7, { ChrCustomizationChoiceID: 301, RelatedChrCustomizationChoiceID: 0, ChrCustomizationGeosetID: 7 }]
 	]
 };
 
@@ -82,7 +90,7 @@ const DBCharacterCustomization = require(src('db', 'caches', 'DBCharacterCustomi
 const character_appearance = require(src('ui', 'character-appearance.js'));
 
 // the Custom Geoset Control rows of the model
-const make_rows = () => [0, 1, 5, 6, 701, 702, 703, 1701, 1702, 2401, 2402].map(id => ({ id, checked: false }));
+const make_rows = () => [0, 1, 5, 6, 100, 101, 102, 701, 702, 703, 1701, 1702, 2401, 2402].map(id => ({ id, checked: false }));
 const checked = rows => rows.filter(row => row.checked).map(row => row.id);
 
 test('every geoset row of the picked choice is turned on', async () => {
@@ -128,4 +136,38 @@ test('a choice lists every geoset it names, for the sidecar labels', async () =>
 	assert.deepEqual(DBCharacterCustomization.get_choice_geoset_ids(100), [5, 1702]);
 	assert.deepEqual(DBCharacterCustomization.get_choice_geoset_ids(200), [702, 2402]);
 	assert.deepEqual(DBCharacterCustomization.get_choice_geoset_ids(999), []);
+});
+
+test('a picked choice hides its group\'s default when the plain variant has no row (#226)', async () => {
+	await DBCharacterCustomization.ensureInitialized();
+
+	// Cheeky Slackjaw: jaw 102 on and the default closed jaw 101 off (before #226 both showed)
+	const slackjaw = make_rows();
+	character_appearance.apply_customization_geosets(slackjaw, [{ optionID: 30, choiceID: 301 }]);
+	assert.ok(checked(slackjaw).includes(102), 'the Slackjaw 102 is on');
+	assert.ok(!checked(slackjaw).includes(101), 'the default jaw 101 is off under it');
+	assert.ok(!checked(slackjaw).includes(100), 'the group\'s 00 row is left alone');
+	assert.ok(checked(slackjaw).includes(2401), 'other groups keep their default');
+
+	// Closed: the choice has no row, so the default 101 stays and 102 goes off
+	const closed = make_rows();
+	for (const row of closed)
+		row.checked = row.id === 102;
+
+	character_appearance.apply_customization_geosets(closed, [{ optionID: 30, choiceID: 300 }]);
+	assert.ok(checked(closed).includes(101), 'the default jaw 101 is on');
+	assert.ok(!checked(closed).includes(102), 'the Slackjaw 102 is off');
+});
+
+test('a conditional geoset hides its group\'s default only while it is on (#226)', async () => {
+	await DBCharacterCustomization.ensureInitialized();
+
+	const with_braids = make_rows();
+	character_appearance.apply_customization_geosets(with_braids, [{ optionID: 10, choiceID: 100 }, { optionID: 20, choiceID: 200 }]);
+	assert.ok(checked(with_braids).includes(2402));
+	assert.ok(!checked(with_braids).includes(2401), 'ear rings 2402 replace the default 2401');
+
+	const with_short_hair = make_rows();
+	character_appearance.apply_customization_geosets(with_short_hair, [{ optionID: 10, choiceID: 101 }, { optionID: 20, choiceID: 200 }]);
+	assert.ok(checked(with_short_hair).includes(2401), 'no ear rings, so the default 2401 stays');
 });
