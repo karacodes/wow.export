@@ -8,6 +8,7 @@ const db2 = require('../../casc/db2');
 const DBCreatures = require('./DBCreatures');
 const customization_geosets = require('../../wow/customization-geosets');
 const { filter_for_class } = require('../../ui/customization-class');
+const { is_bare_feet } = require('../../wow/bare-feet');
 
 const tfd_map = new Map();
 const choice_to_geoset = new Map(); // choice id -> [{ geoset: ChrCustomizationGeosetID, related: RelatedChrCustomizationChoiceID }]
@@ -203,8 +204,11 @@ const _initialize = async () => {
 	// races
 	for (const [chr_race_id, chr_race_row] of await db2.ChrRaces.getAllRows()) {
 		const flags = chr_race_row.Flags;
-		chr_race_map.set(chr_race_id, { id: chr_race_id, name: chr_race_row.Name_lang, isNPCRace: ((flags & 1) == 1 && chr_race_id != 23 && chr_race_id != 75) });
+		chr_race_map.set(chr_race_id, { id: chr_race_id, name: chr_race_row.Name_lang, isNPCRace: ((flags & 1) == 1 && chr_race_id != 23 && chr_race_id != 75), bareFeet: is_bare_feet(flags) });
 	}
+
+	const bare_feet_races = [...chr_race_map.values()].filter(race => race.bareFeet && !race.isNPCRace).map(race => race.name + ' (' + race.id + ')');
+	log.write('Barefoot races, no item texture on the feet: %s', bare_feet_races.join(', ') || 'none');
 
 	// race -> model mapping
 	for (const chr_race_x_chr_model_row of (await db2.ChrRaceXChrModel.getAllRows()).values()) {
@@ -275,6 +279,8 @@ const get_chr_model_id = (race_id, sex) => {
 
 const get_race_models = (race_id) => chr_race_x_chr_model_map.get(race_id);
 const get_chr_race_map = () => chr_race_map;
+// races drawn barefoot (ChrRaces flag 0x2) take no item texture on their feet, see bare-feet.js
+const is_race_bare_feet = (race_id) => chr_race_map.get(race_id)?.bareFeet === true;
 const get_chr_race_x_chr_model_map = () => chr_race_x_chr_model_map;
 
 // every geoset id a choice names, conditional rows included (for labels); empty when none
@@ -336,6 +342,7 @@ module.exports = {
 	get_chr_model_id,
 	get_race_models,
 	get_chr_race_map,
+	is_race_bare_feet,
 	get_chr_race_x_chr_model_map,
 
 	get_choice_geoset_ids,

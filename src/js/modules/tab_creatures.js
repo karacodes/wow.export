@@ -23,6 +23,7 @@ const DBItemGeosets = require('../db/caches/DBItemGeosets');
 const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
 const DBItems = require('../db/caches/DBItems');
 const { get_slot_name, get_attachment_ids_for_item, get_slot_layer } = require('../wow/EquipmentSlots');
+const { body_item_textures } = require('../wow/bare-feet');
 
 const textureRibbon = require('../ui/texture-ribbon');
 const textureExporter = require('../ui/texture-exporter');
@@ -259,11 +260,13 @@ const apply_creature_equipment_textures = async (core) => {
 		}
 	}
 
+	// a barefoot race (tauren hooves) takes no boot texture on its feet
+	const bare_feet = DBCharacterCustomization.is_race_bare_feet(creature_extra_info?.DisplayRaceID);
 	for (const [slot_id, entry] of enabled) {
 		// use display-ID-based lookup for armor, item-ID-based for weapons
-		const item_textures = entry.item_id
+		const item_textures = body_item_textures(entry.item_id
 			? DBItemCharTextures.getItemTextures(entry.item_id, creature_extra_info?.DisplayRaceID, creature_extra_info?.DisplaySexID, undefined, creature_extra_info?.DisplayClassID)
-			: DBItemCharTextures.getTexturesByDisplayId(entry.display_id, creature_extra_info?.DisplayRaceID, creature_extra_info?.DisplaySexID, creature_extra_info?.DisplayClassID);
+			: DBItemCharTextures.getTexturesByDisplayId(entry.display_id, creature_extra_info?.DisplayRaceID, creature_extra_info?.DisplaySexID, creature_extra_info?.DisplayClassID), bare_feet);
 
 		if (!item_textures)
 			continue;
@@ -873,10 +876,12 @@ const export_files = async (core, entries) => {
 									}
 								}
 
+								// a barefoot race (tauren hooves) takes no boot texture on its feet
+								const bare_feet = DBCharacterCustomization.is_race_bare_feet(creature_extra_info?.DisplayRaceID);
 								for (const [slot_id, entry] of export_equipment) {
-									const item_textures = entry.item_id
+									const item_textures = body_item_textures(entry.item_id
 										? DBItemCharTextures.getItemTextures(entry.item_id, creature_extra_info?.DisplayRaceID, creature_extra_info?.DisplaySexID, undefined, creature_extra_info?.DisplayClassID)
-										: DBItemCharTextures.getTexturesByDisplayId(entry.display_id, creature_extra_info?.DisplayRaceID, creature_extra_info?.DisplaySexID, creature_extra_info?.DisplayClassID);
+										: DBItemCharTextures.getTexturesByDisplayId(entry.display_id, creature_extra_info?.DisplayRaceID, creature_extra_info?.DisplaySexID, creature_extra_info?.DisplayClassID), bare_feet);
 
 									if (!item_textures)
 										continue;
