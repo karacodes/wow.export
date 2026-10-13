@@ -318,7 +318,7 @@ const export_files = async (core, files, export_id = -1) => {
 		core.setToast('error', 'Export format not yet implemented for legacy models: ' + format, null, -1);
 	}
 
-	export_paths?.close();
+	await export_paths?.close();
 };
 
 module.exports = {

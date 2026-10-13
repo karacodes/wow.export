@@ -421,7 +421,10 @@ const openLastExportStream = () => {
 			log.write('failed to stat last_export: %s', e.message);
 	}
 
-	return new FileWriter(constants.LAST_EXPORT, 'utf8');
+	// the list only helps other tools find the exported files: failing to write it must not fail the export
+	const writer = new FileWriter(constants.LAST_EXPORT, 'utf8', true);
+	writer.stream.on('error', e => log.write('failed to write last_export: %s', e.message));
+	return writer;
 };
 
 /**

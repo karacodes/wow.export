@@ -64,7 +64,7 @@ class MTLWriter {
 			await writer.writeLine('map_Kd ' + materialFile);
 		}
 
-		writer.close();
+		await writer.close();
 	}
 }
 

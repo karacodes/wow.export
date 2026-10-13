@@ -179,7 +179,7 @@ const exportFiles = async (files, isLocal = false, exportID = -1, isMPQ = false)
 		}
 	}
 
-	exportPaths?.close();
+	await exportPaths?.close();
 
 	helper.finish();
 };

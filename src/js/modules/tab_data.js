@@ -252,7 +252,7 @@ module.exports = {
 				}
 			}
 
-			export_paths?.close();
+			await export_paths?.close();
 			helper.finish();
 		},
 
@@ -316,7 +316,7 @@ module.exports = {
 				}
 			}
 
-			export_paths?.close();
+			await export_paths?.close();
 			helper.finish();
 		},
 
@@ -360,7 +360,7 @@ module.exports = {
 				}
 			}
 
-			export_paths?.close();
+			await export_paths?.close();
 			helper.finish();
 		}
 	},

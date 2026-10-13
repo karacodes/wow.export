@@ -72,7 +72,7 @@ const exportDataTable = async (headers, rows, tableName, options = {}) => {
 	}
 
 	if (standalone) {
-		exportPaths?.close();
+		await exportPaths?.close();
 		helper.finish();
 	}
 };
@@ -128,7 +128,7 @@ const exportRawDB2 = async (tableName, fileDataID, options = {}) => {
 	}
 
 	if (standalone) {
-		exportPaths?.close();
+		await exportPaths?.close();
 		helper.finish();
 	}
 };
@@ -200,7 +200,7 @@ const exportDataTableSQL = async (headers, rows, tableName, schema, createTable,
 	}
 
 	if (standalone) {
-		exportPaths?.close();
+		await exportPaths?.close();
 		helper.finish();
 	}
 };
@@ -249,7 +249,7 @@ const exportRawDBC = async (tableName, filePath, mpq) => {
 		log.write('Failed to export raw DBC file: %s', e.message);
 	}
 
-	exportPaths?.close();
+	await exportPaths?.close();
 	helper.finish();
 };
 

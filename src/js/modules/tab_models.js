@@ -198,7 +198,7 @@ const export_files = async (core, files, is_local = false, export_id = -1) => {
 			core.setToast('error', 'The selected export option only works for model previews. Preview something first!', null, -1);
 		}
 
-		export_paths?.close();
+		await export_paths?.close();
 		return;
 	}
 
@@ -280,7 +280,7 @@ const export_files = async (core, files, is_local = false, export_id = -1) => {
 	}
 
 	helper.finish();
-	export_paths?.close();
+	await export_paths?.close();
 };
 
 module.exports = {
@@ -544,7 +544,7 @@ module.exports = {
 
 				const export_paths = this.$core.openLastExportStream();
 				await export_paths?.writeLine('png:' + out_path);
-				export_paths?.close();
+				await export_paths?.close();
 
 				helper.mark(relative_path, true);
 			} catch (e) {
