@@ -308,8 +308,9 @@ class BLPImage {
 				return (byte & (0x01 << (index % 8))) === 0 ? 0x00 : 0xFF;
 
 			case 4:
-				byte = this.rawData[this.scaledLength + (index / 2)];
-				return (index % 2 === 0 ? (byte & 0x0F) << 4 : byte & 0xF0);
+				// two alphas per byte, low nibble first; scale 0-15 to 0-255
+				byte = this.rawData[this.scaledLength + Math.floor(index / 2)];
+				return (index % 2 === 0 ? byte & 0x0F : byte >> 4) * 17;
 
 			case 8:
 				return this.rawData[this.scaledLength + index];
