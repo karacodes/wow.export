@@ -44,6 +44,7 @@ const random_equipment = require('../wow/random-equipment');
 const geoset_picks = require('../wow/geoset-overrides');
 const AnimMapper = require('../3D/AnimMapper');
 const { filter_animations } = require('../wow/animation-filter');
+const { body_item_textures } = require('../wow/bare-feet');
 const BoneMapper = require('../3D/BoneMapper');
 
 
@@ -530,6 +531,7 @@ async function update_textures(core) {
 	const item_skins = core.view.chrEquippedItemSkins;
 	if (equipped_items && Object.keys(equipped_items).length > 0) {
 		const char_info = get_current_race_gender(core);
+		const bare_feet = DBCharacterCustomization.is_race_bare_feet(char_info?.raceID);
 		const sections = DBCharacterCustomization.get_texture_sections(current_char_component_texture_layout_id);
 		if (sections) {
 			const section_by_type = new Map();
@@ -578,7 +580,8 @@ async function update_textures(core) {
 
 				const modifier_id = item_skins?.[slot_id];
 				const class_id = selected_class_id(core);
-				const item_textures = DBItemCharTextures.getItemTextures(item_id, char_info?.raceID, char_info?.genderIndex, modifier_id, class_id);
+				// a barefoot race (tauren hooves) takes no boot texture on its feet
+				const item_textures = body_item_textures(DBItemCharTextures.getItemTextures(item_id, char_info?.raceID, char_info?.genderIndex, modifier_id, class_id), bare_feet);
 				if (!item_textures)
 					continue;
 
