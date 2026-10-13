@@ -207,6 +207,9 @@ const _initialize = async () => {
 		chr_race_map.set(chr_race_id, { id: chr_race_id, name: chr_race_row.Name_lang, isNPCRace: ((flags & 1) == 1 && chr_race_id != 23 && chr_race_id != 75), bareFeet: is_bare_feet(flags) });
 	}
 
+	const bare_feet_races = [...chr_race_map.values()].filter(race => race.bareFeet && !race.isNPCRace).map(race => race.name + ' (' + race.id + ')');
+	log.write('Barefoot races, no item texture on the feet: %s', bare_feet_races.join(', ') || 'none');
+
 	// race -> model mapping
 	for (const chr_race_x_chr_model_row of (await db2.ChrRaceXChrModel.getAllRows()).values()) {
 		if (!chr_race_x_chr_model_map.has(chr_race_x_chr_model_row.ChrRacesID))
