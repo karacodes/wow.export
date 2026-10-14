@@ -45,6 +45,7 @@ const geoset_picks = require('../wow/geoset-overrides');
 const AnimMapper = require('../3D/AnimMapper');
 const { filter_animations } = require('../wow/animation-filter');
 const { body_item_textures } = require('../wow/bare-feet');
+const { import_race_id } = require('../wow/import-race');
 const BoneMapper = require('../3D/BoneMapper');
 
 
@@ -1837,20 +1838,9 @@ async function apply_import_data(core, data, source) {
 		if (data.playable_class?.id !== undefined)
 			core.view.config.chrIsDemonHunter = data.playable_class.id === CLASS_DEMON_HUNTER;
 
-		// pandaren with faction -> use neutral
-		if (race_id == 25 || race_id == 26)
-			race_id = 24;
-
-		// dracthyr horde -> use alliance
-		if (race_id == 70)
-			race_id = 52;
-
-		// worgen/dracthyr visage
-		if (race_id == 22 && core.view.chrImportLoadVisage)
-			race_id = 23;
-
-		if (race_id == 52 && core.view.chrImportLoadVisage)
-			race_id = 75;
+		// faction pandaren and horde dracthyr use the shared model; the visage box swaps a worgen
+		// for its human form (race 23, not 1: see wow/import-race.js) and a dracthyr for its visage
+		race_id = import_race_id(race_id, core.view.chrImportLoadVisage);
 
 		gender_index = data.gender.type === 'MALE' ? 0 : 1;
 
