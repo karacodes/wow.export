@@ -413,37 +413,37 @@ class ADTExporter {
 				
 				if (wdt.lgtFileDataID > 0) {
 					const lgtFile = await casc.getFile(wdt.lgtFileDataID);
-					lgtFile.writeToFile(path.join(dir, this.mapDir + '_lgt.wdt'));
+					await lgtFile.writeToFile(path.join(dir, this.mapDir + '_lgt.wdt'));
 				}
 
 				if (wdt.occFileDataID > 0) {
 					const occFile = await casc.getFile(wdt.occFileDataID);
-					occFile.writeToFile(path.join(dir, this.mapDir + '_occ.wdt'));
+					await occFile.writeToFile(path.join(dir, this.mapDir + '_occ.wdt'));
 				}
 
 				if (wdt.fogsFileDataID > 0) {
 					const fogsFile = await casc.getFile(wdt.fogsFileDataID);
-					fogsFile.writeToFile(path.join(dir, this.mapDir + '_fogs.wdt'));
+					await fogsFile.writeToFile(path.join(dir, this.mapDir + '_fogs.wdt'));
 				}
 
 				if (wdt.mpvFileDataID > 0) {
 					const mpvFile = await casc.getFile(wdt.mpvFileDataID);
-					mpvFile.writeToFile(path.join(dir, this.mapDir + '_mpv.wdt'));
+					await mpvFile.writeToFile(path.join(dir, this.mapDir + '_mpv.wdt'));
 				}
 
 				if (wdt.texFileDataID > 0) {
 					const texFile = await casc.getFile(wdt.texFileDataID);
-					texFile.writeToFile(path.join(dir, this.mapDir + '.tex'));
+					await texFile.writeToFile(path.join(dir, this.mapDir + '.tex'));
 				}
 
 				if (wdt.wdlFileDataID > 0) {
 					const wdlFile = await casc.getFile(wdt.wdlFileDataID);
-					wdlFile.writeToFile(path.join(dir, this.mapDir + '.wdl'));
+					await wdlFile.writeToFile(path.join(dir, this.mapDir + '.wdl'));
 				}
 
 				if (wdt.pd4FileDataID > 0) {
 					const pd4File = await casc.getFile(wdt.pd4FileDataID);
-					pd4File.writeToFile(path.join(dir, this.mapDir + '.pd4'));
+					await pd4File.writeToFile(path.join(dir, this.mapDir + '.pd4'));
 				}
 			}
 		}
