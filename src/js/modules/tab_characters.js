@@ -135,7 +135,6 @@ const collection_model_renderers = new Map();
 let current_char_component_texture_layout_id = 0;
 let default_model_file_data_id = 0;
 let watcher_cleanup_funcs = [];
-let is_importing = false;
 let auto_select_in_progress = false;
 let tab_ready = false; // mounted() has loaded the tab's data: the print batch may start
 
@@ -316,7 +315,7 @@ function reset_module_state() {
 
 //region appearance
 async function refresh_character_appearance(core) {
-	if (!active_renderer || is_importing)
+	if (!active_renderer)
 		return;
 
 	// check if a conditional model swap is needed (e.g. upright orc)
@@ -1623,9 +1622,6 @@ function pick_outfit_file(core) {
  */
 async function apply_class_selection(core) {
 	const state = core.view;
-	if (is_importing)
-		return; // the import builds the lists for the class it set
-
 	const selected = state.chrCustModelSelection[0];
 	if (selected === undefined)
 		return refresh_character_appearance(core);
@@ -1951,7 +1947,7 @@ async function apply_import_data(core, data, source) {
 
 		customizations = [];
 		for (const choice_id of data.customizations) {
-			const choice_row = db2.ChrCustomizationChoice.getRow(choice_id);
+			const choice_row = await db2.ChrCustomizationChoice.getRow(choice_id);
 			if (!choice_row)
 				continue;
 
@@ -1966,26 +1962,23 @@ async function apply_import_data(core, data, source) {
 	// external imports always set both shoulders from a single shoulder slot
 	expand_shoulder_slots(equipment, equipment_skins);
 
-	is_importing = true;
 	geoset_pick_state.pending = null;
 
-	try {
-		core.view.chrEquippedItems = { ...equipment };
-		core.view.chrEquippedItemSkins = { ...equipment_skins };
+	core.view.chrEquippedItems = { ...equipment };
+	core.view.chrEquippedItemSkins = { ...equipment_skins };
 
-		core.view.chrImportChoices.splice(0, core.view.chrImportChoices.length);
-		core.view.chrImportChoices.push(...customizations);
+	core.view.chrImportChoices.splice(0, core.view.chrImportChoices.length);
+	core.view.chrImportChoices.push(...customizations);
 
-		const chr_model_id = DBCharacterCustomization.get_chr_model_id(race_id, gender_index);
-		core.view.chrImportChrModelID = chr_model_id;
-		core.view.chrImportTargetModelID = chr_model_id;
+	const chr_model_id = DBCharacterCustomization.get_chr_model_id(race_id, gender_index);
+	core.view.chrImportChrModelID = chr_model_id;
+	core.view.chrImportTargetModelID = chr_model_id;
 
-		core.view.chrCustRaceSelection = [core.view.chrCustRaces.find(e => e.id === race_id)];
-
-		await update_model_selection(core);
-	} finally {
-		is_importing = false;
-	}
+	// a new selection fires the race watcher even for the race on screen: it picks the body type,
+	// whose watcher applies the import's choices and redraws, as for a saved character. Calling
+	// update_model_selection here too used the choices up early, so a same-race import kept the
+	// old character's look (wow-to-stl #229)
+	core.view.chrCustRaceSelection = [core.view.chrCustRaces.find(e => e.id === race_id)];
 }
 
 //endregion
