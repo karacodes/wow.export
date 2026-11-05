@@ -44,6 +44,7 @@ const random_equipment = require('../wow/random-equipment');
 const geoset_picks = require('../wow/geoset-overrides');
 const AnimMapper = require('../3D/AnimMapper');
 const { filter_animations } = require('../wow/animation-filter');
+const { equipment_row } = require('../wow/sidecar-equipment');
 const { body_item_textures } = require('../wow/bare-feet');
 const { import_race_id } = require('../wow/import-race');
 const BoneMapper = require('../3D/BoneMapper');
@@ -1117,19 +1118,12 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 			continue;
 		}
 
-		equipment.push({
-			equipmentIndex: i,
-			slot: equip.slot_id,
-			slotName: get_slot_name(equip.slot_id) || null,
-			itemID: equip.item_id,
-			displayID: DBItemModels.getDisplayId(equip.item_id, equip.modifier_id) ?? null,
-			modifierID: equip.modifier_id ?? 0,
-			modelFileDataID: equip.renderer?.item_file_data_id ?? null,
-			modelIndex: equip.model_index ?? 0,
-			attachmentID: equip.is_collection_style ? null : (equip.attachment_id ?? null),
-			style: equip.is_collection_style ? 'collection' : 'attachment',
-			textures: equip.textures || []
-		});
+		// the row carries the game's item name, which WoW Print shows on the item's rows (wow-to-stl #301)
+		equipment.push(equipment_row(equip, i, {
+			slot_name: get_slot_name,
+			display_id: (item_id, modifier_id) => DBItemModels.getDisplayId(item_id, modifier_id),
+			item: item_id => DBItems.getItemById(item_id)
+		}));
 	}
 
 	// who the character is: the saved character's name, else the armory name (WoW Print names the STL after it)
