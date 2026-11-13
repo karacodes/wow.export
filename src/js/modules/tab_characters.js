@@ -24,7 +24,7 @@ const { wowhead_parse } = require('../wowhead');
 const InstallType = require('../install-type');
 const charTextureOverlay = require('../ui/char-texture-overlay');
 const PNGWriter = require('../png-writer');
-const { EQUIPMENT_SLOTS, SHOULDER_SLOT_L, SHOULDER_SLOT_R, ATTACHMENT_ID, get_slot_name, get_attachment_ids_for_item, get_slot_layer } = require('../wow/EquipmentSlots');
+const { EQUIPMENT_SLOTS, SHOULDER_SLOT_L, SHOULDER_SLOT_R, ATTACHMENT_ID, get_slot_name, get_attachment_ids_for_item, get_sheath_attachment_id, get_slot_layer } = require('../wow/EquipmentSlots');
 const DBItems = require('../db/caches/DBItems');
 const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
 const DBItemGeosets = require('../db/caches/DBItemGeosets');
@@ -800,6 +800,8 @@ async function update_equipment_models(core) {
 
 		// load attachment models
 		if (attachment_entries.length > 0) {
+			// where a weapon goes when the Weapons option says Sheathed (null outside the hands)
+			const sheath_attachment_id = get_sheath_attachment_id(slot_id, DBItems.getItemById(item_id)?.sheatheType ?? 0);
 			const renderers = [];
 			for (const { file_data_id, attachment_id, model_index } of attachment_entries) {
 				try {
@@ -814,7 +816,7 @@ async function update_equipment_models(core) {
 					// apply this model's textures (a two-model item has a list per model)
 					await renderer.applyReplaceableTextures({ textures: DBItemModels.getItemTexturesForModel(display, model_index) });
 
-					renderers.push({ renderer, attachment_id, is_collection_style });
+					renderers.push({ renderer, attachment_id, held_attachment_id: attachment_id, sheath_attachment_id, is_collection_style });
 					log.write('Loaded attachment model %d for slot %d attachment %d (item %d)', file_data_id, slot_id, attachment_id, item_id);
 				} catch (e) {
 					log.write('Failed to load attachment model %d: %s', file_data_id, e.message);
@@ -866,6 +868,47 @@ async function update_equipment_models(core) {
 
 			if (renderers.length > 0)
 				collection_model_renderers.set(slot_id, { renderers, item_id, modifier_id });
+		}
+	}
+
+	apply_weapon_sheathing(core);
+}
+
+/**
+ * Does the current character model have attachment point `attachment_id` (its M2, or the
+ * .skel modern character models keep their attachments in)?
+ * @param {number} attachment_id
+ * @returns {boolean}
+ */
+function character_has_attachment(attachment_id) {
+	const m2 = active_renderer?.m2;
+	if (!m2)
+		return false;
+
+	return !!(m2.getAttachmentById?.(attachment_id) || active_renderer.skelLoader?.getAttachmentById?.(attachment_id));
+}
+
+/**
+ * Hang the main-hand and off-hand items on their sheath points when the Weapons option says
+ * Sheathed, else back in the hands. The viewer, the hand grip, every export and the print
+ * sidecar read the attachment id from here. A model without the sheath point keeps the item
+ * in the hand.
+ * @param {object} core
+ */
+function apply_weapon_sheathing(core) {
+	const sheathed = core.view.config.chrSheatheWeapons === true;
+	for (const [slot_id, entry] of equipment_model_renderers) {
+		for (const item of entry.renderers) {
+			if (item.sheath_attachment_id == null)
+				continue;
+
+			const use_sheath = sheathed && character_has_attachment(item.sheath_attachment_id);
+			const attachment_id = use_sheath ? item.sheath_attachment_id : item.held_attachment_id;
+			if (item.attachment_id === attachment_id)
+				continue;
+
+			item.attachment_id = attachment_id;
+			log.write('Slot %d item %d %s on attachment %d', slot_id, entry.item_id, use_sheath ? 'sheathed' : 'held', attachment_id);
 		}
 	}
 }
@@ -1143,6 +1186,8 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 		pose,
 		viewerYaw: core.view.chrModelViewerContext?.controls?.model_rotation_y ?? null,
 		attachments,
+		// the Weapons option: main-hand and off-hand items on their sheath points, not in the hands
+		weaponsSheathed: core.view.config.chrSheatheWeapons === true,
 		equipment,
 		customization,
 		activeChoices: describe_choices(core, (core.view.chrCustActiveChoices || []).map(c => c.choiceID)),
@@ -3478,6 +3523,14 @@ module.exports = {
 							<option value="true">Demon Hunter</option>
 						</select>
 					</label>
+					<label class="ui-select-label">
+						<span class="select-prefix"><span class="prefix-label">Weapons:</span> <span class="prefix-value">{{ $core.view.config.chrSheatheWeapons ? 'Sheathed' : 'In hand' }}</span></span>
+						<select class="ui-select" :value="$core.view.config.chrSheatheWeapons" @change="$core.view.config.chrSheatheWeapons = $event.target.value === 'true'">
+							<option value="" disabled selected style="display:none;"></option>
+							<option value="false">In hand</option>
+							<option value="true">Sheathed</option>
+						</select>
+					</label>
 					</template>
 					<template v-else>
 						<div class="geoset-checkboxes">
@@ -4139,6 +4192,7 @@ module.exports = {
 		watcher_cleanup_funcs.push(
 			this.$core.view.$watch('config.chrIncludeBaseClothing', () => track(refresh_character_appearance(this.$core))),
 			this.$core.view.$watch('config.chrIsDemonHunter', () => track(apply_class_selection(this.$core))),
+			this.$core.view.$watch('config.chrSheatheWeapons', () => apply_weapon_sheathing(this.$core)),
 			this.$core.view.$watch('chrCustRaceSelection', () => track(update_chr_model_list(this.$core))),
 			this.$core.view.$watch('chrCustModelSelection', () => track(update_model_selection(this.$core)), { deep: true }),
 			this.$core.view.$watch('chrCustOptionSelection', () => update_customization_type(this.$core), { deep: true }),

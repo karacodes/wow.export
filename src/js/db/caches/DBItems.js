@@ -27,7 +27,9 @@ const initialize_items = async () => {
 		for (const [item_id, item_row] of item_rows) {
 			item_class_map.set(item_id, {
 				classID: item_row.ClassID,
-				subclassID: item_row.SubclassID
+				subclassID: item_row.SubclassID,
+				// where the item goes when sheathed (older definitions spell it SheathType)
+				sheatheType: item_row.SheatheType ?? item_row.SheathType ?? 0
 			});
 		}
 
@@ -41,7 +43,8 @@ const initialize_items = async () => {
 				inventoryType: item_row.InventoryType,
 				quality: item_row.OverallQualityID ?? 0,
 				classID: class_info?.classID ?? 0,
-				subclassID: class_info?.subclassID ?? 0
+				subclassID: class_info?.subclassID ?? 0,
+				sheatheType: class_info?.sheatheType ?? 0
 			});
 		}
 

@@ -317,20 +317,15 @@ module.exports = {
 				const mainhand = equipment_renderers.get(16);
 				const offhand = equipment_renderers.get(17);
 
-				if (mainhand?.renderers?.length > 0) {
-					// bows use left-hand attachment despite being main-hand items
-					const uses_left_hand = mainhand.renderers.some(r => r.attachment_id === ATTACHMENT_ID.HAND_LEFT);
-					if (uses_left_hand)
-						close_left = true;
-					else
-						close_right = true;
-				}
-
-				if (offhand?.renderers?.length > 0) {
-					// shields don't require grip (attached to wrist)
-					const has_shield = offhand.renderers.some(r => r.attachment_id === ATTACHMENT_ID.SHIELD);
-					if (!has_shield)
-						close_left = true;
+				// a hand closes round whatever hangs in its palm: a bow sits in the left hand, a
+				// shield on the forearm and a sheathed weapon on the back or hip leave hands open
+				for (const entry of [mainhand, offhand]) {
+					for (const { attachment_id } of entry?.renderers ?? []) {
+						if (attachment_id === ATTACHMENT_ID.HAND_RIGHT)
+							close_right = true;
+						else if (attachment_id === ATTACHMENT_ID.HAND_LEFT)
+							close_left = true;
+					}
 				}
 
 				activeRenderer.setHandGrip(close_right, close_left);
