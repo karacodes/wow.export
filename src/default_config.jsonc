@@ -120,6 +120,7 @@
 	"chrCustShowNPCRaces": false,
 	"chrIncludeBaseClothing": true,
 	"chrIsDemonHunter": false,
+	"chrSheatheWeapons": false,
 	"chrShowTextureOverlay": false,
 	"itemViewerShowAll": false,
 	"pathFormat": "win32",

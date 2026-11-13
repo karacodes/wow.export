@@ -186,6 +186,27 @@ const get_attachment_ids_for_item = (slot_id, { inventory_type, is_bow } = {}) =
 	return get_attachment_ids_for_slot(slot_id) || [];
 };
 
+// Item.SheatheType: where the game puts a weapon when it is sheathed, as the main-hand point
+// and the off-hand point (the two cross over, so a pair of one-handers sits on both hips).
+// Values and points as wowmodelviewer reads them (database.cpp, WoWItem.cpp).
+const SHEATHE_TYPE_POINTS = {
+	1: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],   // two-handers: across the back
+	2: [ATTACHMENT_ID.RIGHT_BACK, ATTACHMENT_ID.LEFT_BACK],               // staves, polearms, bows: up the back
+	3: [ATTACHMENT_ID.RIGHT_HIP_SHEATH, ATTACHMENT_ID.LEFT_HIP_SHEATH],   // one-handers: the hips
+	4: [ATTACHMENT_ID.SHEATH_SHIELD, ATTACHMENT_ID.SHEATH_SHIELD]         // shields: the middle of the back
+};
+
+// the attachment point a main-hand (16) or off-hand (17) item hangs on when weapons are
+// sheathed, from its Item.SheatheType; null for other slots. Items with no sheathe type
+// (wands, off-hand books and orbs) go to the hips, like one-handers (Kara, 2026-11-13).
+const get_sheath_attachment_id = (slot_id, sheathe_type) => {
+	if (slot_id !== 16 && slot_id !== 17)
+		return null;
+
+	const points = SHEATHE_TYPE_POINTS[sheathe_type] ?? SHEATHE_TYPE_POINTS[3];
+	return points[slot_id === 16 ? 0 : 1];
+};
+
 const get_slot_layer = (slot_id) => {
 	return SLOT_LAYER[slot_id] ?? 10;
 };
@@ -205,5 +226,6 @@ module.exports = {
 	get_slot_name,
 	get_attachment_ids_for_slot,
 	get_attachment_ids_for_item,
+	get_sheath_attachment_id,
 	get_slot_layer
 };
