@@ -24,7 +24,7 @@ const { wowhead_parse } = require('../wowhead');
 const InstallType = require('../install-type');
 const charTextureOverlay = require('../ui/char-texture-overlay');
 const PNGWriter = require('../png-writer');
-const { EQUIPMENT_SLOTS, SHOULDER_SLOT_L, SHOULDER_SLOT_R, ATTACHMENT_ID, get_slot_name, get_attachment_ids_for_item, get_sheath_attachment_id, get_slot_layer } = require('../wow/EquipmentSlots');
+const { EQUIPMENT_SLOTS, SHOULDER_SLOT_L, SHOULDER_SLOT_R, ATTACHMENT_ID, get_slot_name, get_attachment_ids_for_item, get_sheath_attachment_id, mirrors_off_hand, get_slot_layer } = require('../wow/EquipmentSlots');
 const DBItems = require('../db/caches/DBItems');
 const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
 const DBItemGeosets = require('../db/caches/DBItemGeosets');
@@ -802,6 +802,8 @@ async function update_equipment_models(core) {
 		if (attachment_entries.length > 0) {
 			// where a weapon goes when the Weapons option says Sheathed (null outside the hands)
 			const sheath_attachment_id = get_sheath_attachment_id(slot_id, DBItems.getItemById(item_id)?.sheatheType ?? 0);
+			// an off-hand weapon the Off-hand option can mirror (not a shield, book or orb)
+			const mirrorable = mirrors_off_hand(slot_id, { inventory_type: DBItems.getItemById(item_id)?.inventoryType });
 			const renderers = [];
 			for (const { file_data_id, attachment_id, model_index } of attachment_entries) {
 				try {
@@ -816,7 +818,7 @@ async function update_equipment_models(core) {
 					// apply this model's textures (a two-model item has a list per model)
 					await renderer.applyReplaceableTextures({ textures: DBItemModels.getItemTexturesForModel(display, model_index) });
 
-					renderers.push({ renderer, attachment_id, held_attachment_id: attachment_id, sheath_attachment_id, is_collection_style });
+					renderers.push({ renderer, attachment_id, held_attachment_id: attachment_id, sheath_attachment_id, is_collection_style, mirrorable });
 					log.write('Loaded attachment model %d for slot %d attachment %d (item %d)', file_data_id, slot_id, attachment_id, item_id);
 				} catch (e) {
 					log.write('Failed to load attachment model %d: %s', file_data_id, e.message);
@@ -872,6 +874,26 @@ async function update_equipment_models(core) {
 	}
 
 	apply_weapon_sheathing(core);
+	await apply_off_hand_mirror(core);
+}
+
+/**
+ * Mirror the off-hand weapon left to right when the Off-hand option says Mirrored, else
+ * restore it (wow-to-stl #317). The model's own data is flipped, so the viewer, every export
+ * and the print sidecar agree.
+ * @param {object} core
+ */
+async function apply_off_hand_mirror(core) {
+	const mirrored = core.view.config.chrMirrorOffHand === true;
+	for (const [slot_id, entry] of equipment_model_renderers) {
+		for (const item of entry.renderers) {
+			if (!item.mirrorable)
+				continue;
+
+			if (await item.renderer.setMirrored(mirrored))
+				log.write('Slot %d item %d %s', slot_id, entry.item_id, mirrored ? 'mirrored' : 'not mirrored');
+		}
+	}
 }
 
 /**
@@ -1188,6 +1210,8 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 		attachments,
 		// the Weapons option: main-hand and off-hand items on their sheath points, not in the hands
 		weaponsSheathed: core.view.config.chrSheatheWeapons === true,
+		// the Off-hand option: the off-hand weapon is the mirror image of its model (#317)
+		offHandMirrored: core.view.config.chrMirrorOffHand === true,
 		equipment,
 		customization,
 		activeChoices: describe_choices(core, (core.view.chrCustActiveChoices || []).map(c => c.choiceID)),
@@ -3531,6 +3555,14 @@ module.exports = {
 							<option value="true">Sheathed</option>
 						</select>
 					</label>
+					<label class="ui-select-label" title="Mirrored: the off-hand weapon is the mirror image of its model, in the viewer and every export. Shields, books and orbs stay as they are.">
+						<span class="select-prefix"><span class="prefix-label">Off-hand:</span> <span class="prefix-value">{{ $core.view.config.chrMirrorOffHand ? 'Mirrored' : 'As is' }}</span></span>
+						<select class="ui-select" :value="$core.view.config.chrMirrorOffHand" @change="$core.view.config.chrMirrorOffHand = $event.target.value === 'true'">
+							<option value="" disabled selected style="display:none;"></option>
+							<option value="false">As is</option>
+							<option value="true">Mirrored</option>
+						</select>
+					</label>
 					</template>
 					<template v-else>
 						<div class="geoset-checkboxes">
@@ -4193,6 +4225,7 @@ module.exports = {
 			this.$core.view.$watch('config.chrIncludeBaseClothing', () => track(refresh_character_appearance(this.$core))),
 			this.$core.view.$watch('config.chrIsDemonHunter', () => track(apply_class_selection(this.$core))),
 			this.$core.view.$watch('config.chrSheatheWeapons', () => apply_weapon_sheathing(this.$core)),
+			this.$core.view.$watch('config.chrMirrorOffHand', () => track(apply_off_hand_mirror(this.$core))),
 			this.$core.view.$watch('chrCustRaceSelection', () => track(update_chr_model_list(this.$core))),
 			this.$core.view.$watch('chrCustModelSelection', () => track(update_model_selection(this.$core)), { deep: true }),
 			this.$core.view.$watch('chrCustOptionSelection', () => update_customization_type(this.$core), { deep: true }),
