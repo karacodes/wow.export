@@ -20,6 +20,7 @@ const GLTexture = require('../gl/GLTexture');
 
 const textureRibbon = require('../../ui/texture-ribbon');
 const { create_bones_ubo } = require('./renderer_utils');
+const { attachment_local_matrix } = require('../../wow/EquipmentSlots');
 
 // vertex shader name to ID mapping (matches vertex shader switch cases)
 const VERTEX_SHADER_IDS = {
@@ -1892,20 +1893,9 @@ class M2RendererGL {
 		const bone_offset = bone_idx * 16;
 		const bone_mat = this.bone_matrices.subarray(bone_offset, bone_offset + 16);
 
-		// attachment position is in WoW coords (X=right, Y=forward, Z=up)
-		// convert to WebGL coords (X=right, Y=up, Z=-forward)
-		const pos = attachment.position;
-		const att_x = pos[0];
-		const att_y = pos[2];  // WoW Z -> WebGL Y
-		const att_z = -pos[1]; // WoW Y -> WebGL -Z
-
-		// create attachment local transform (translation only)
-		const att_mat = new Float32Array([
-			1, 0, 0, 0,
-			0, 1, 0, 0,
-			0, 0, 1, 0,
-			att_x, att_y, att_z, 1
-		]);
+		// attachment local transform: its position (WoW coords to WebGL: x, z, -y), plus the
+		// back sheaths' turn so a sheathed weapon hangs blade down (wow-to-stl #341)
+		const att_mat = attachment_local_matrix(attachmentId, attachment.position);
 
 		// combine: world = bone_world * attachment_local
 		const result = new Float32Array(16);

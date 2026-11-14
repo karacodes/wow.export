@@ -207,6 +207,52 @@ const get_sheath_attachment_id = (slot_id, sheathe_type) => {
 	return points[slot_id === 16 ? 0 : 1];
 };
 
+// The back sheath points (26, 27) carry no tilt of their own on the HD character models: their
+// bones keep the body's axes, so an item hung there as it hangs in the hand points its blade
+// straight up past the head (wow-to-stl #341). The game hangs it hilt up over the shoulder and
+// blade down, the two crossing at the middle of the back (Kara's Kingslayers screenshot,
+// 2026-11-14). So the item turns about the body's forward axis: half a turn, less or more the
+// cross tilt, so each blade's tip leans towards the other side.
+const SHEATH_CROSS_TILT_DEG = 25;
+const ATTACHMENT_TURN_DEG = {
+	[ATTACHMENT_ID.SHEATH_MAIN_HAND]: 180 + SHEATH_CROSS_TILT_DEG,  // right shoulder, tip to the left
+	[ATTACHMENT_ID.SHEATH_OFF_HAND]: 180 - SHEATH_CROSS_TILT_DEG    // left shoulder, tip to the right
+};
+
+// The 4x4 (column-major) that places an item on an attachment point relative to the point's
+// bone: the point's position, then the turn above for the back sheaths. Renderer space: x forward,
+// y up, z to the character's right (the game's x, z, -y). The position is in the game's space.
+const attachment_local_matrix = (attachment_id, position) => {
+	const m = new Float32Array([
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		position[0], position[2], -position[1], 1
+	]);
+
+	const turn = ATTACHMENT_TURN_DEG[attachment_id];
+	if (turn !== undefined) {
+		const a = turn * Math.PI / 180;
+		const c = Math.cos(a), s = Math.sin(a);
+		// rotation about x: y -> (0, c, s), z -> (0, -s, c)
+		m[5] = c; m[6] = s;
+		m[9] = -s; m[10] = c;
+	}
+
+	return m;
+};
+
+// The same turn as a glTF rotation quaternion [x, y, z, w] (the glTF space is the renderer's),
+// or null for a point with none.
+const attachment_turn_quaternion = (attachment_id) => {
+	const turn = ATTACHMENT_TURN_DEG[attachment_id];
+	if (turn === undefined)
+		return null;
+
+	const half = turn * Math.PI / 360;
+	return [Math.sin(half), 0, 0, Math.cos(half)];
+};
+
 const get_slot_layer = (slot_id) => {
 	return SLOT_LAYER[slot_id] ?? 10;
 };
@@ -227,5 +273,7 @@ module.exports = {
 	get_attachment_ids_for_slot,
 	get_attachment_ids_for_item,
 	get_sheath_attachment_id,
+	attachment_local_matrix,
+	attachment_turn_quaternion,
 	get_slot_layer
 };

@@ -2680,6 +2680,7 @@ async function export_char_gltf(core, helper, export_paths, format, file_data_id
 				boneWeights: geom.boneWeights,
 				attachment_bone: geom.attachment_bone,
 				attachment_position: geom.attachment_position,
+				attachment_rotation: geom.attachment_rotation,
 				textures,
 				is_collection_style: geom.is_collection_style,
 				is_skinned_model: geom.is_skinned_model === true,

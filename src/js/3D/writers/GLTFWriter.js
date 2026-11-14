@@ -189,6 +189,8 @@ class GLTFWriter {
 	 * @param {number} [equip.attachment_bone] - Bone index for attachment (non-skinned equipment)
 	 * @param {number[]} [equip.attachment_position] - Attachment position in model space (same
 	 * space as the bone pivots); the item node is parented to the bone at this position
+	 * @param {number[]} [equip.attachment_rotation] - The item's turn on that point, a quaternion
+	 * [x, y, z, w] (the back sheaths hang a weapon blade down, wow-to-stl #341)
 	 */
 	addEquipmentModel(equip) {
 		this.equipment_models.push(equip);
@@ -1409,6 +1411,9 @@ class GLTFWriter {
 					const pivot = bones[equip.attachment_bone].pivot;
 					const pos = equip.attachment_position ?? pivot;
 					node.translation = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
+					// a back sheath turns the item blade down (wow-to-stl #341)
+					if (equip.attachment_rotation)
+						node.rotation = equip.attachment_rotation;
 
 					root.nodes.push(node);
 					const node_index = root.nodes.length - 1;
