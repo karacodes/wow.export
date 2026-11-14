@@ -21,6 +21,7 @@ const GLTexture = require('../gl/GLTexture');
 const textureRibbon = require('../../ui/texture-ribbon');
 const { create_bones_ubo } = require('./renderer_utils');
 const { attachment_local_matrix } = require('../../wow/EquipmentSlots');
+const { set_m2_mirror } = require('../mirror-geometry');
 
 // vertex shader name to ID mapping (matches vertex shader switch cases)
 const VERTEX_SHADER_IDS = {
@@ -1925,6 +1926,23 @@ class M2RendererGL {
 			min: [src_min[0], src_min[2], -src_max[1]],
 			max: [src_max[0], src_max[2], -src_min[1]]
 		};
+	}
+
+	/**
+	 * Mirror the model's own data by `matrix` (row-major 3x3 signed permutation, see
+	 * mirror-geometry.js), or restore it for null (Mirror off-hand, wow-to-stl #317). The
+	 * viewer and every exporter read the changed data; the GPU buffers are rebuilt from it.
+	 * @param {number[]|null} matrix
+	 * @returns {Promise<boolean>} true when the model changed
+	 */
+	async setMirror(matrix) {
+		if (!this.m2 || !set_m2_mirror(this.m2, matrix))
+			return false;
+
+		if (this.m2.vertices.length > 0)
+			await this.loadSkin(0);
+
+		return true;
 	}
 
 	_dispose_skin() {
