@@ -24,6 +24,7 @@ const { wowhead_parse } = require('../wowhead');
 const InstallType = require('../install-type');
 const charTextureOverlay = require('../ui/char-texture-overlay');
 const PNGWriter = require('../png-writer');
+const { left_hand_mirror } = require('../3D/mirror-geometry');
 const { EQUIPMENT_SLOTS, SHOULDER_SLOT_L, SHOULDER_SLOT_R, ATTACHMENT_ID, get_slot_name, get_attachment_ids_for_item, get_sheath_attachment_id, mirrors_off_hand, get_slot_layer } = require('../wow/EquipmentSlots');
 const DBItems = require('../db/caches/DBItems');
 const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
@@ -878,20 +879,29 @@ async function update_equipment_models(core) {
 }
 
 /**
- * Mirror the off-hand weapon left to right when the Off-hand option says Mirrored, else
- * restore it (wow-to-stl #317). The model's own data is flipped, so the viewer, every export
- * and the print sidecar agree.
+ * Make the off-hand weapon a real left-hand copy (the mirror image of the same weapon in the
+ * right hand) when the Off-hand option says Mirrored, else restore it (wow-to-stl #317). The
+ * mirror comes from the two hands' attachments in the current pose (mirror-geometry.js) and is
+ * applied to the model's own data, so the viewer, every export and the print sidecar agree.
+ * Run after equipment changes, when the option or the animation changes, and before exports.
  * @param {object} core
  */
 async function apply_off_hand_mirror(core) {
 	const mirrored = core.view.config.chrMirrorOffHand === true;
+	let matrix = null;
+	if (mirrored) {
+		matrix = left_hand_mirror(
+			active_renderer?.getAttachmentTransform?.(ATTACHMENT_ID.HAND_LEFT, false),
+			active_renderer?.getAttachmentTransform?.(ATTACHMENT_ID.HAND_RIGHT, false));
+	}
+
 	for (const [slot_id, entry] of equipment_model_renderers) {
 		for (const item of entry.renderers) {
 			if (!item.mirrorable)
 				continue;
 
-			if (await item.renderer.setMirrored(mirrored))
-				log.write('Slot %d item %d %s', slot_id, entry.item_id, mirrored ? 'mirrored' : 'not mirrored');
+			if (await item.renderer.setMirror(matrix))
+				log.write('Slot %d item %d %s', slot_id, entry.item_id, matrix ? 'mirrored as a left-hand copy [' + matrix.join(',') + ']' : 'not mirrored');
 		}
 	}
 }
@@ -1210,7 +1220,7 @@ function build_character_meta(core, renderer, model_file_data_id, equipment_data
 		attachments,
 		// the Weapons option: main-hand and off-hand items on their sheath points, not in the hands
 		weaponsSheathed: core.view.config.chrSheatheWeapons === true,
-		// the Off-hand option: the off-hand weapon is the mirror image of its model (#317)
+		// the Off-hand option: the off-hand weapon is a left-hand copy of the right hand's (#317)
 		offHandMirrored: core.view.config.chrMirrorOffHand === true,
 		equipment,
 		customization,
@@ -2565,6 +2575,9 @@ function update_chr_race_list(core) {
  * @returns {Promise<boolean>} true when the file was written and marked
  */
 async function export_char_mesh(core, helper, export_paths, format, file_data_id, file_name, export_mask = null, texture_layers = null) {
+	// the off-hand mirror follows the pose being exported
+	await apply_off_hand_mirror(core);
+
 	const ext = format === 'STL' ? '.stl' : '.obj';
 	const mark_file_name = ExportHelper.replaceExtension(file_name, ext);
 	const export_path = ExportHelper.getExportPath(mark_file_name);
@@ -2662,6 +2675,9 @@ async function export_char_mesh(core, helper, export_paths, format, file_data_id
  * @returns {Promise<boolean>} true when the file was written and marked
  */
 async function export_char_gltf(core, helper, export_paths, format, file_data_id, file_name, export_mask = null) {
+	// the off-hand mirror follows the pose being exported
+	await apply_off_hand_mirror(core);
+
 	const casc = core.view.casc;
 	const data = await casc.getFile(file_data_id);
 	const mark_file_name = ExportHelper.replaceExtension(file_name, '.gltf');
@@ -3555,7 +3571,7 @@ module.exports = {
 							<option value="true">Sheathed</option>
 						</select>
 					</label>
-					<label class="ui-select-label" title="Mirrored: the off-hand weapon is the mirror image of its model, in the viewer and every export. Shields, books and orbs stay as they are.">
+					<label class="ui-select-label" title="Mirrored: the off-hand weapon is a real left-hand copy, the mirror image of the same weapon in the right hand, in the viewer and every export. Shields, books and orbs stay as they are.">
 						<span class="select-prefix"><span class="prefix-label">Off-hand:</span> <span class="prefix-value">{{ $core.view.config.chrMirrorOffHand ? 'Mirrored' : 'As is' }}</span></span>
 						<select class="ui-select" :value="$core.view.config.chrMirrorOffHand" @change="$core.view.config.chrMirrorOffHand = $event.target.value === 'true'">
 							<option value="" disabled selected style="display:none;"></option>
@@ -4256,6 +4272,7 @@ module.exports = {
 					if (anim_info && anim_info.m2Index !== undefined && anim_info.m2Index >= 0) {
 						log.write(`Playing animation ${selected_animation_id} at M2 index ${anim_info.m2Index}`);
 						await active_renderer.playAnimation(anim_info.m2Index);
+						track(apply_off_hand_mirror(this.$core));
 
 						this.$core.view.chrModelViewerAnimFrameCount = active_renderer.get_animation_frame_count();
 

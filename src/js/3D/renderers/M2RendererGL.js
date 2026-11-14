@@ -20,7 +20,7 @@ const GLTexture = require('../gl/GLTexture');
 
 const textureRibbon = require('../../ui/texture-ribbon');
 const { create_bones_ubo } = require('./renderer_utils');
-const { mirror_m2_geometry } = require('../mirror-geometry');
+const { set_m2_mirror } = require('../mirror-geometry');
 
 // vertex shader name to ID mapping (matches vertex shader switch cases)
 const VERTEX_SHADER_IDS = {
@@ -1939,17 +1939,16 @@ class M2RendererGL {
 	}
 
 	/**
-	 * Mirror the model left to right (M2 Y) or back (Mirror off-hand, wow-to-stl #317). The
-	 * M2 data itself is flipped, so the viewer and every exporter read the mirrored mesh;
-	 * the GPU buffers are rebuilt from it.
-	 * @param {boolean} mirrored
+	 * Mirror the model's own data by `matrix` (row-major 3x3 signed permutation, see
+	 * mirror-geometry.js), or restore it for null (Mirror off-hand, wow-to-stl #317). The
+	 * viewer and every exporter read the changed data; the GPU buffers are rebuilt from it.
+	 * @param {number[]|null} matrix
 	 * @returns {Promise<boolean>} true when the model changed
 	 */
-	async setMirrored(mirrored) {
-		if (!this.m2 || !!this.m2.mirrored === !!mirrored)
+	async setMirror(matrix) {
+		if (!this.m2 || !set_m2_mirror(this.m2, matrix))
 			return false;
 
-		mirror_m2_geometry(this.m2);
 		if (this.m2.vertices.length > 0)
 			await this.loadSkin(0);
 
