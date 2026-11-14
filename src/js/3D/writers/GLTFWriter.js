@@ -13,6 +13,7 @@ const BufferWrapper = require('../../buffer');
 const BoneMapper = require('../BoneMapper');
 const AnimMapper = require('../AnimMapper');
 const { get_bone_scale_track } = require('./gltf-bone-scale');
+const { with_global_tracks } = require('../bone-tracks');
 const log = require('../../log');
 
 // See https://gist.github.com/mhenry07/e31d8c94db91fb823f2eed2fc1b43f15
@@ -189,8 +190,6 @@ class GLTFWriter {
 	 * @param {number} [equip.attachment_bone] - Bone index for attachment (non-skinned equipment)
 	 * @param {number[]} [equip.attachment_position] - Attachment position in model space (same
 	 * space as the bone pivots); the item node is parented to the bone at this position
-	 * @param {number[]} [equip.attachment_rotation] - The item's turn on that point, a quaternion
-	 * [x, y, z, w] (the back sheaths hang a weapon blade down, wow-to-stl #341)
 	 */
 	addEquipmentModel(equip) {
 		this.equipment_models.push(equip);
@@ -301,7 +300,9 @@ class GLTFWriter {
 		};
 
 		const nodes = root.nodes;
-		const bones = this.bones;
+		// a global sequence's keys (the sheath points' fixed turn, wow-to-stl #341) go under
+		// every animation: glTF has no global clock
+		const bones = this.bones.map(bone => with_global_tracks(bone, this.animations.length));
 
 		let idx_inv_bind = -1;
 		let idx_bone_joints = -1
@@ -360,7 +361,7 @@ class GLTFWriter {
 			if (core.view.config.modelsExportAnimations) {
 				for (var animationIndex = 0; animationIndex < this.animations.length; animationIndex++) {
 					var requiredBufferSize = 0;
-					for (const bone of this.bones) {
+					for (const bone of bones) {
 						// Timestamps are all floats (uints originally), so 4 bytes each.
 						for (let i = 0; i < bone.translation.timestamps.length; i++) {
 							if (i == animationIndex && bone.translation.interpolation < 2) {
@@ -1411,9 +1412,6 @@ class GLTFWriter {
 					const pivot = bones[equip.attachment_bone].pivot;
 					const pos = equip.attachment_position ?? pivot;
 					node.translation = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
-					// a back sheath turns the item blade down (wow-to-stl #341)
-					if (equip.attachment_rotation)
-						node.rotation = equip.attachment_rotation;
 
 					root.nodes.push(node);
 					const node_index = root.nodes.length - 1;

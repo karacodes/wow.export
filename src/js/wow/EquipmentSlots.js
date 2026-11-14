@@ -188,13 +188,21 @@ const get_attachment_ids_for_item = (slot_id, { inventory_type, is_bow } = {}) =
 };
 
 // Item.SheatheType: where the game puts a weapon when it is sheathed, as the main-hand point
-// and the off-hand point (the two cross over, so a pair of one-handers sits on both hips).
-// Values and points as wowmodelviewer reads them (database.cpp, WoWItem.cpp).
+// and the off-hand point. Taken from Wowhead's model viewer (wow.zamimg.com modelviewer, its
+// sheathe-type table, read 2026-11-14 for wow-to-stl #341): the two hands cross over, so the
+// main hand goes on the LEFT hip or the left side of the back and the off hand on the right,
+// and a two-hander's two points cross on the back. The game turns each point's bone itself (a
+// fixed global-sequence rotation), so nothing here turns the item.
 const SHEATHE_TYPE_POINTS = {
-	1: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],   // two-handers: across the back
-	2: [ATTACHMENT_ID.RIGHT_BACK, ATTACHMENT_ID.LEFT_BACK],               // staves, polearms, bows: up the back
-	3: [ATTACHMENT_ID.RIGHT_HIP_SHEATH, ATTACHMENT_ID.LEFT_HIP_SHEATH],   // one-handers: the hips
-	4: [ATTACHMENT_ID.SHEATH_SHIELD, ATTACHMENT_ID.SHEATH_SHIELD]         // shields: the middle of the back
+	1: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],   // two-handers, large daggers: crossed on the back
+	2: [ATTACHMENT_ID.LEFT_BACK, ATTACHMENT_ID.RIGHT_BACK],               // staves, polearms, bows: up the back
+	3: [ATTACHMENT_ID.LEFT_HIP_SHEATH, ATTACHMENT_ID.RIGHT_HIP_SHEATH],   // one-handers: the hips
+	4: [ATTACHMENT_ID.SHEATH_SHIELD, ATTACHMENT_ID.SHEATH_SHIELD],        // shields: the middle of the back
+	5: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],
+	6: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],
+	7: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],
+	8: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],
+	9: [ATTACHMENT_ID.RIGHT_HIP_SHEATH, ATTACHMENT_ID.SHEATH_SHIELD]
 };
 
 // the attachment point a main-hand (16) or off-hand (17) item hangs on when weapons are
@@ -206,52 +214,6 @@ const get_sheath_attachment_id = (slot_id, sheathe_type) => {
 
 	const points = SHEATHE_TYPE_POINTS[sheathe_type] ?? SHEATHE_TYPE_POINTS[3];
 	return points[slot_id === 16 ? 0 : 1];
-};
-
-// The back sheath points (26, 27) carry no tilt of their own on the HD character models: their
-// bones keep the body's axes, so an item hung there as it hangs in the hand points its blade
-// straight up past the head (wow-to-stl #341). The game hangs it hilt up over the shoulder and
-// blade down, the two crossing at the middle of the back (Kara's Kingslayers screenshot,
-// 2026-11-14). So the item turns about the body's forward axis: half a turn, less or more the
-// cross tilt, so each blade's tip leans towards the other side.
-const SHEATH_CROSS_TILT_DEG = 25;
-const ATTACHMENT_TURN_DEG = {
-	[ATTACHMENT_ID.SHEATH_MAIN_HAND]: 180 + SHEATH_CROSS_TILT_DEG,  // right shoulder, tip to the left
-	[ATTACHMENT_ID.SHEATH_OFF_HAND]: 180 - SHEATH_CROSS_TILT_DEG    // left shoulder, tip to the right
-};
-
-// The 4x4 (column-major) that places an item on an attachment point relative to the point's
-// bone: the point's position, then the turn above for the back sheaths. Renderer space: x forward,
-// y up, z to the character's right (the game's x, z, -y). The position is in the game's space.
-const attachment_local_matrix = (attachment_id, position) => {
-	const m = new Float32Array([
-		1, 0, 0, 0,
-		0, 1, 0, 0,
-		0, 0, 1, 0,
-		position[0], position[2], -position[1], 1
-	]);
-
-	const turn = ATTACHMENT_TURN_DEG[attachment_id];
-	if (turn !== undefined) {
-		const a = turn * Math.PI / 180;
-		const c = Math.cos(a), s = Math.sin(a);
-		// rotation about x: y -> (0, c, s), z -> (0, -s, c)
-		m[5] = c; m[6] = s;
-		m[9] = -s; m[10] = c;
-	}
-
-	return m;
-};
-
-// The same turn as a glTF rotation quaternion [x, y, z, w] (the glTF space is the renderer's),
-// or null for a point with none.
-const attachment_turn_quaternion = (attachment_id) => {
-	const turn = ATTACHMENT_TURN_DEG[attachment_id];
-	if (turn === undefined)
-		return null;
-
-	const half = turn * Math.PI / 360;
-	return [Math.sin(half), 0, 0, Math.cos(half)];
 };
 
 // Mirror off-hand (wow-to-stl #317): with the Off-hand option on Mirrored, an off-hand weapon
@@ -281,8 +243,6 @@ module.exports = {
 	get_attachment_ids_for_slot,
 	get_attachment_ids_for_item,
 	get_sheath_attachment_id,
-	attachment_local_matrix,
-	attachment_turn_quaternion,
 	mirrors_off_hand,
 	get_slot_layer
 };

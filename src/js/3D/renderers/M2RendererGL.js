@@ -20,8 +20,8 @@ const GLTexture = require('../gl/GLTexture');
 
 const textureRibbon = require('../../ui/texture-ribbon');
 const { create_bones_ubo } = require('./renderer_utils');
-const { attachment_local_matrix } = require('../../wow/EquipmentSlots');
 const { set_m2_mirror } = require('../mirror-geometry');
+const { track_keys, has_global_seq } = require('../bone-tracks');
 
 // vertex shader name to ID mapping (matches vertex shader switch cases)
 const VERTEX_SHADER_IDS = {
@@ -958,10 +958,18 @@ class M2RendererGL {
 			const effective_anim_idx = use_closed_hand ? hands_closed_idx : anim_idx;
 			const effective_time_ms = use_closed_hand ? 0 : time_ms; // use frame 0 for HandsClosed
 
-			// check if bone has any animation data for this animation (from anim_bone)
-			const has_trans = anim_bone?.translation?.timestamps?.[effective_anim_idx]?.length > 0;
-			const has_rot = anim_bone?.rotation?.timestamps?.[effective_anim_idx]?.length > 0;
-			const has_scale = anim_bone?.scale?.timestamps?.[effective_anim_idx]?.length > 0;
+			// the keys each track gives for this animation (from anim_bone): its own list, or a
+			// global sequence's list on the global clock (the sheath points' fixed turn, #341);
+			// a global track only the structural bone holds still counts
+			const keys = (kind) => track_keys(anim_bone?.[kind], effective_anim_idx) ??
+				(anim_bone !== bone && has_global_seq(bone[kind]) ? track_keys(bone[kind], effective_anim_idx) : null);
+			const key_time = (k) => k.global_seq === null ? effective_time_ms : (this.global_seq_times[k.global_seq] ?? 0);
+			const trans_keys = keys('translation');
+			const rot_keys = keys('rotation');
+			const scale_keys = keys('scale');
+			const has_trans = trans_keys !== null;
+			const has_rot = rot_keys !== null;
+			const has_scale = scale_keys !== null;
 			const has_scale_fallback = !has_scale && effective_anim_idx !== 0 && anim_bone?.scale?.timestamps?.[0]?.length > 0;
 			const has_animation = has_trans || has_rot || has_scale || has_scale_fallback;
 
@@ -976,9 +984,7 @@ class M2RendererGL {
 
 				// apply translation (raw animation offset from anim_bone data)
 				if (has_trans) {
-					const ts = anim_bone.translation.timestamps[effective_anim_idx];
-					const vals = anim_bone.translation.values[effective_anim_idx];
-					const [tx, ty, tz] = this._sample_raw_vec3(ts, vals, effective_time_ms);
+					const [tx, ty, tz] = this._sample_raw_vec3(trans_keys.timestamps, trans_keys.values, key_time(trans_keys));
 
 					mat4_from_translation(trans_mat, tx, ty, tz);
 					mat4_multiply(temp_result, local_mat, trans_mat);
@@ -987,9 +993,7 @@ class M2RendererGL {
 
 				// apply rotation
 				if (has_rot) {
-					const ts = anim_bone.rotation.timestamps[effective_anim_idx];
-					const vals = anim_bone.rotation.values[effective_anim_idx];
-					const [qx, qy, qz, qw] = this._sample_raw_quat(ts, vals, effective_time_ms);
+					const [qx, qy, qz, qw] = this._sample_raw_quat(rot_keys.timestamps, rot_keys.values, key_time(rot_keys));
 
 					mat4_from_quat(rot_mat, qx, qy, qz, qw);
 					mat4_multiply(temp_result, local_mat, rot_mat);
@@ -998,10 +1002,9 @@ class M2RendererGL {
 
 				// apply scale (fallback to animation 0 if current animation lacks scale data)
 				if (has_scale || has_scale_fallback) {
-					const scale_anim_idx = has_scale ? effective_anim_idx : 0;
-					const ts = anim_bone.scale.timestamps[scale_anim_idx];
-					const vals = anim_bone.scale.values[scale_anim_idx];
-					const scale_time = has_scale ? effective_time_ms : 0;
+					const ts = has_scale ? scale_keys.timestamps : anim_bone.scale.timestamps[0];
+					const vals = has_scale ? scale_keys.values : anim_bone.scale.values[0];
+					const scale_time = has_scale ? key_time(scale_keys) : 0;
 					const [sx, sy, sz] = this._sample_raw_vec3(ts, vals, scale_time, [1, 1, 1]);
 
 					mat4_from_scale(scale_mat, sx, sy, sz);
@@ -1894,9 +1897,20 @@ class M2RendererGL {
 		const bone_offset = bone_idx * 16;
 		const bone_mat = this.bone_matrices.subarray(bone_offset, bone_offset + 16);
 
-		// attachment local transform: its position (WoW coords to WebGL: x, z, -y), plus the
-		// back sheaths' turn so a sheathed weapon hangs blade down (wow-to-stl #341)
-		const att_mat = attachment_local_matrix(attachmentId, attachment.position);
+		// attachment position is in WoW coords (X=right, Y=forward, Z=up)
+		// convert to WebGL coords (X=right, Y=up, Z=-forward)
+		const pos = attachment.position;
+		const att_x = pos[0];
+		const att_y = pos[2];  // WoW Z -> WebGL Y
+		const att_z = -pos[1]; // WoW Y -> WebGL -Z
+
+		// create attachment local transform (translation only)
+		const att_mat = new Float32Array([
+			1, 0, 0, 0,
+			0, 1, 0, 0,
+			0, 0, 1, 0,
+			att_x, att_y, att_z, 1
+		]);
 
 		// combine: world = bone_world * attachment_local
 		const result = new Float32Array(16);

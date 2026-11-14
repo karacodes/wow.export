@@ -4,7 +4,6 @@
 	License: MIT
  */
 const log = require('../../log');
-const { attachment_turn_quaternion } = require('../../wow/EquipmentSlots');
 
 /**
  * Transform a position by a 4x4 matrix
@@ -292,9 +291,8 @@ class CharacterExporter {
 	 * modern character models keep their attachments in).
 	 * @private
 	 * @param {number} attachment_id
-	 * @returns {{ bone: number, position: number[], rotation: number[]|null }|null} bone index,
-	 * the attachment position converted to the exporter's Y-up space (WoW X=right, Y=forward,
-	 * Z=up), and the item's turn on that point as a quaternion (the back sheaths, #341)
+	 * @returns {{ bone: number, position: number[] }|null} bone index and the attachment
+	 * position converted to the exporter's Y-up space (WoW X=right, Y=forward, Z=up)
 	 */
 	_get_attachment(attachment_id) {
 		const char = this.char_renderer;
@@ -309,7 +307,7 @@ class CharacterExporter {
 			return null;
 
 		const pos = attachment.position;
-		return { bone: attachment.bone, position: [pos[0], pos[2], -pos[1]], rotation: attachment_turn_quaternion(attachment_id) };
+		return { bone: attachment.bone, position: [pos[0], pos[2], -pos[1]] };
 	}
 
 	/**
@@ -329,13 +327,11 @@ class CharacterExporter {
 		// writer can parent them to that bone instead of leaving them at the origin
 		let attachment_bone = -1;
 		let attachment_position = null;
-		let attachment_rotation = null;
 		if (!is_collection_style && attachment_id !== undefined) {
 			const attachment = this._get_attachment(attachment_id);
 			if (attachment) {
 				attachment_bone = attachment.bone;
 				attachment_position = attachment.position;
-				attachment_rotation = attachment.rotation;
 			}
 		}
 
@@ -395,8 +391,7 @@ class CharacterExporter {
 			boneIndices,
 			boneWeights,
 			attachment_bone,
-			attachment_position,
-			attachment_rotation
+			attachment_position
 		};
 	}
 
