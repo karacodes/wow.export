@@ -156,6 +156,7 @@ const SLOT_TO_ATTACHMENT = {
 };
 
 const INVENTORY_TYPE_SHIELD = 14;
+const INVENTORY_TYPE_HOLDABLE = 23;
 
 const get_slot_id_for_inventory_type = (inventory_type) => {
 	return INVENTORY_TYPE_TO_SLOT_ID[inventory_type] ?? null;
@@ -207,6 +208,13 @@ const get_sheath_attachment_id = (slot_id, sheathe_type) => {
 	return points[slot_id === 16 ? 0 : 1];
 };
 
+// Mirror off-hand (wow-to-stl #317): with the Off-hand option on Mirrored, an off-hand weapon
+// (slot 17) is the mirror image of its model. Not a shield (14) or a held-in-off-hand book or
+// orb (23): those read the same way in either hand, and their text and emblems would flip.
+const mirrors_off_hand = (slot_id, { inventory_type } = {}) => {
+	return slot_id === 17 && inventory_type !== INVENTORY_TYPE_SHIELD && inventory_type !== INVENTORY_TYPE_HOLDABLE;
+};
+
 const get_slot_layer = (slot_id) => {
 	return SLOT_LAYER[slot_id] ?? 10;
 };
@@ -227,5 +235,6 @@ module.exports = {
 	get_attachment_ids_for_slot,
 	get_attachment_ids_for_item,
 	get_sheath_attachment_id,
+	mirrors_off_hand,
 	get_slot_layer
 };

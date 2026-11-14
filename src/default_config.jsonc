@@ -121,6 +121,7 @@
 	"chrIncludeBaseClothing": true,
 	"chrIsDemonHunter": false,
 	"chrSheatheWeapons": false,
+	"chrMirrorOffHand": false,
 	"chrShowTextureOverlay": false,
 	"itemViewerShowAll": false,
 	"pathFormat": "win32",
