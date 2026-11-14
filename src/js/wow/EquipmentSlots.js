@@ -188,13 +188,21 @@ const get_attachment_ids_for_item = (slot_id, { inventory_type, is_bow } = {}) =
 };
 
 // Item.SheatheType: where the game puts a weapon when it is sheathed, as the main-hand point
-// and the off-hand point (the two cross over, so a pair of one-handers sits on both hips).
-// Values and points as wowmodelviewer reads them (database.cpp, WoWItem.cpp).
+// and the off-hand point. Taken from Wowhead's model viewer (wow.zamimg.com modelviewer, its
+// sheathe-type table, read 2026-11-14 for wow-to-stl #341): the two hands cross over, so the
+// main hand goes on the LEFT hip or the left side of the back and the off hand on the right,
+// and a two-hander's two points cross on the back. The game turns each point's bone itself (a
+// fixed global-sequence rotation), so nothing here turns the item.
 const SHEATHE_TYPE_POINTS = {
-	1: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],   // two-handers: across the back
-	2: [ATTACHMENT_ID.RIGHT_BACK, ATTACHMENT_ID.LEFT_BACK],               // staves, polearms, bows: up the back
-	3: [ATTACHMENT_ID.RIGHT_HIP_SHEATH, ATTACHMENT_ID.LEFT_HIP_SHEATH],   // one-handers: the hips
-	4: [ATTACHMENT_ID.SHEATH_SHIELD, ATTACHMENT_ID.SHEATH_SHIELD]         // shields: the middle of the back
+	1: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],   // two-handers, large daggers: crossed on the back
+	2: [ATTACHMENT_ID.LEFT_BACK, ATTACHMENT_ID.RIGHT_BACK],               // staves, polearms, bows: up the back
+	3: [ATTACHMENT_ID.LEFT_HIP_SHEATH, ATTACHMENT_ID.RIGHT_HIP_SHEATH],   // one-handers: the hips
+	4: [ATTACHMENT_ID.SHEATH_SHIELD, ATTACHMENT_ID.SHEATH_SHIELD],        // shields: the middle of the back
+	5: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],
+	6: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],
+	7: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],
+	8: [ATTACHMENT_ID.SHEATH_MAIN_HAND, ATTACHMENT_ID.SHEATH_OFF_HAND],
+	9: [ATTACHMENT_ID.RIGHT_HIP_SHEATH, ATTACHMENT_ID.SHEATH_SHIELD]
 };
 
 // the attachment point a main-hand (16) or off-hand (17) item hangs on when weapons are
