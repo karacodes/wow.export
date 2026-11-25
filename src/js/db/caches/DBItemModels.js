@@ -10,6 +10,7 @@ const DBModelFileData = require('./DBModelFileData');
 const DBItemDisplayInfoModelMatRes = require('./DBItemDisplayInfoModelMatRes');
 const DBTextureFileData = require('./DBTextureFileData');
 const DBComponentModelFileData = require('./DBComponentModelFileData');
+const { model_resource_slots } = require('../../wow/fitted-back-model');
 
 // maps ItemID -> Map<ItemAppearanceModifierID, ItemDisplayInfoID>
 const item_to_display_ids = new Map();
@@ -64,6 +65,8 @@ const initialize = async () => {
 		// load model and texture file data IDs from ItemDisplayInfo
 		for (const [display_id, row] of await db2.ItemDisplayInfo.getAllRows()) {
 			const model_res_ids = row.ModelResourcesID.filter(e => e > 0);
+			// the ModelResourcesID slot each one came from (the filter drops empty slots; #316)
+			const model_slots = model_resource_slots(row.ModelResourcesID);
 
 			// store ALL file data IDs per model resource (filter by race/gender at query time)
 			const model_options = [];
@@ -108,6 +111,7 @@ const initialize = async () => {
 
 			display_to_data.set(display_id, {
 				modelOptions: has_models ? model_options : [],
+				modelSlots: has_models ? model_slots : [],
 				textures: texture_file_data_ids,
 				texturesByType: textures_by_type,
 				texturesByModel: textures_by_model,
@@ -179,10 +183,12 @@ const get_item_models = (item_id, modifier_id) => {
  * @param {number} [gender_index] - 0=male, 1=female for filtering
  * @param {number} [modifier_id] - item appearance modifier (skin index)
  * @param {'left'|'right'} [shoulder_position] - for shoulder items, return only the specified side
- * @returns {{ID: number, textures: number[], texturesByType: Object<number, number[]>, texturesByModel: number[][], models: number[], modelIndices: number[], geosetGroup: number[], attachmentGeosetGroup: number[]}|null}
+ * @returns {{ID: number, textures: number[], texturesByType: Object<number, number[]>, texturesByModel: number[][], models: number[], modelIndices: number[], modelSlots: number[], geosetGroup: number[], attachmentGeosetGroup: number[]}|null}
  * `models` is empty for a display with textures only (a plain cloak).
- * `modelIndices[i]` is the ModelResourcesID slot `models[i]` came from, the index to use
- * with `texturesByModel` (see `getItemTexturesForModel`).
+ * `modelIndices[i]` is the index of `models[i]` among the display's non-empty model resources,
+ * the index to use with `texturesByModel` (see `getItemTexturesForModel`); `modelSlots[i]` is
+ * the ItemDisplayInfo.ModelResourcesID slot it came from (they differ when slot 0 is empty, as
+ * on Vagabond's Camo Hood, #316).
  */
 const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_position) => {
 	const display_id = resolve_display_id(item_id, modifier_id);
@@ -196,6 +202,7 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 	// filter models by race/gender
 	const models = [];
 	const model_indices = [];
+	const model_slots = [];
 
 	// check if this is a shoulder-type item (2 model options with identical content)
 	// shoulders share the same model pool but use PositionIndex to distinguish left/right
@@ -213,21 +220,25 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 			if (candidates.left) {
 				models.push(candidates.left);
 				model_indices.push(0);
+				model_slots.push(data.modelSlots?.[0] ?? 0);
 			}
 		} else if (shoulder_position === 'right') {
 			if (candidates.right) {
 				models.push(candidates.right);
 				model_indices.push(1);
+				model_slots.push(data.modelSlots?.[1] ?? 1);
 			}
 		} else {
 			if (candidates.left) {
 				models.push(candidates.left);
 				model_indices.push(0);
+				model_slots.push(data.modelSlots?.[0] ?? 0);
 			}
 
 			if (candidates.right) {
 				models.push(candidates.right);
 				model_indices.push(1);
+				model_slots.push(data.modelSlots?.[1] ?? 1);
 			}
 		}
 	} else {
@@ -242,10 +253,12 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 				if (best) {
 					models.push(best);
 					model_indices.push(model_index);
+					model_slots.push(data.modelSlots?.[model_index] ?? model_index);
 				}
 			} else {
 				models.push(options[0]);
 				model_indices.push(model_index);
+				model_slots.push(data.modelSlots?.[model_index] ?? model_index);
 			}
 		}
 	}
@@ -254,6 +267,7 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 		ID: display_id,
 		models: models,
 		modelIndices: model_indices,
+		modelSlots: model_slots,
 		textures: data.textures,
 		texturesByType: data.texturesByType,
 		texturesByModel: data.texturesByModel,

@@ -31,7 +31,7 @@ const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
 const DBItemGeosets = require('../db/caches/DBItemGeosets');
 const DBItemModels = require('../db/caches/DBItemModels');
 const DBComponentModelFileData = require('../db/caches/DBComponentModelFileData');
-const { is_fitted_back_model } = require('../wow/fitted-back-model');
+const { is_fitted_back_model, is_fitted_head_model } = require('../wow/fitted-back-model');
 const DBItemList = require('../db/caches/DBItemList');
 const DBGuildTabard = require('../db/caches/DBGuildTabard');
 const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization');
@@ -780,6 +780,8 @@ async function update_equipment_models(core) {
 		// attachment models: up to attachment_ids.length models get attached, except
 		// race-fitted back models (3D capes built on the character's skeleton), which
 		// are skinned like collection models (see src/js/wow/fitted-back-model.js)
+		// and head models from the display's second model slot (hoods built on the
+		// character's skeleton, #316)
 		// collection models: remaining models render at origin with shared bones
 		const attachment_model_count = Math.min(display.models.length, attachment_ids.length);
 		const attachment_entries = [];
@@ -787,7 +789,11 @@ async function update_equipment_models(core) {
 		for (let i = 0; i < display.models.length; i++) {
 			const entry = { file_data_id: display.models[i], model_index: display.modelIndices?.[i] ?? i };
 			if (i < attachment_model_count) {
-				if (is_fitted_back_model(slot_id, DBComponentModelFileData.getInfo(entry.file_data_id))) {
+				if (is_fitted_head_model(slot_id, display.modelSlots?.[i] ?? entry.model_index)) {
+					// a hood with no attached helm: keep every mesh, as the attachment path did
+					collection_entries.push({ ...entry, keep_geosets: true });
+					log.write('Head model %d is built on the character, skinned instead of attached', entry.file_data_id);
+				} else if (is_fitted_back_model(slot_id, DBComponentModelFileData.getInfo(entry.file_data_id))) {
 					// keep every mesh of the fitted model, as the attachment path did
 					collection_entries.push({ ...entry, keep_geosets: true });
 					log.write('Back model %d is fitted to the race, skinned instead of attached', entry.file_data_id);
