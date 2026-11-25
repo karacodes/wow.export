@@ -13,8 +13,18 @@
 	A back model with a ComponentModelFileData row for a specific race is such a
 	fitted model; race-neutral back models (backpacks, quivers, old capes) have
 	no row or race 0 and stay attachments.
+
+	Fitted head models (wow-to-stl #316, upstream issue 521): an item display
+	keeps the model pinned to the Helm attachment in its first ModelResourcesID
+	slot and a model built on the character's skeleton in its second.
+	Vagabond's Camo Hood (item 206293, display 655731) has only the second: one
+	model per race and sex, already at head height. Taken as the helm, it was
+	pinned to the Helm point and floated a head-height above every race. A head
+	model from the second slot is skinned like the fitted capes; the attached
+	helm (Judgment Crown 16955, display 45888, first slot only) stays attached.
 */
 
+const HEAD_SLOT = 1;
 const BACK_SLOT = 15;
 
 /**
@@ -31,7 +41,21 @@ function is_fitted_back_model(slot_id, model_info) {
 	return !!model_info && model_info.raceID > 0;
 }
 
+/**
+ * Whether a head item model is built on the character's skeleton (skinned like a
+ * collection model) rather than pinned to the Helm attachment point: the models of
+ * the display's second ModelResourcesID slot.
+ * @param {number} slot_id - equipment slot (1 = head)
+ * @param {number} model_index - the ModelResourcesID slot the model came from (display.modelIndices)
+ * @returns {boolean}
+ */
+function is_fitted_head_model(slot_id, model_index) {
+	return slot_id === HEAD_SLOT && model_index >= 1;
+}
+
 module.exports = {
+	HEAD_SLOT,
 	BACK_SLOT,
-	is_fitted_back_model
+	is_fitted_back_model,
+	is_fitted_head_model
 };
