@@ -31,7 +31,7 @@ const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
 const DBItemGeosets = require('../db/caches/DBItemGeosets');
 const DBItemModels = require('../db/caches/DBItemModels');
 const DBComponentModelFileData = require('../db/caches/DBComponentModelFileData');
-const { is_fitted_back_model, is_fitted_head_model } = require('../wow/fitted-back-model');
+const { fitted_back_geoset_visibility, is_fitted_back_model, is_fitted_head_model } = require('../wow/fitted-back-model');
 const DBItemList = require('../db/caches/DBItemList');
 const DBGuildTabard = require('../db/caches/DBGuildTabard');
 const DBCharacterCustomization = require('../db/caches/DBCharacterCustomization');
@@ -794,8 +794,9 @@ async function update_equipment_models(core) {
 					collection_entries.push({ ...entry, keep_geosets: true });
 					log.write('Head model %d is built on the character, skinned instead of attached', entry.file_data_id);
 				} else if (is_fitted_back_model(slot_id, DBComponentModelFileData.getInfo(entry.file_data_id))) {
-					// keep every mesh of the fitted model, as the attachment path did
-					collection_entries.push({ ...entry, keep_geosets: true });
+					// show only the cloak mesh: some fitted back models (the explorer's
+					// rucksack) carry hidden shin, belt and torso pieces too (#319)
+					collection_entries.push({ ...entry, keep_geosets: true, fitted_back: true });
 					log.write('Back model %d is fitted to the race, skinned instead of attached', entry.file_data_id);
 				} else {
 					attachment_entries.push({ ...entry, attachment_id: attachment_ids[i] });
@@ -840,7 +841,7 @@ async function update_equipment_models(core) {
 		// and race-fitted back models)
 		if (collection_entries.length > 0) {
 			const renderers = [];
-			for (const { file_data_id, model_index, keep_geosets } of collection_entries) {
+			for (const { file_data_id, model_index, keep_geosets, fitted_back } of collection_entries) {
 				try {
 					const file = await core.view.casc.getFile(file_data_id);
 					// collection models use character skeleton, reactive=false
@@ -863,6 +864,13 @@ async function update_equipment_models(core) {
 							if (value !== undefined)
 								renderer.setGeosetGroupDisplay(mapping.char_geoset, 1 + value);
 						}
+					}
+
+					if (fitted_back) {
+						const submesh_ids = (renderer.m2?.skins?.[0]?.subMeshes || []).map(submesh => submesh.submeshID);
+						const visible = fitted_back_geoset_visibility(submesh_ids, display.attachmentGeosetGroup);
+						for (let i = 0; i < renderer.draw_calls.length && i < visible.length; i++)
+							renderer.draw_calls[i].visible = visible[i];
 					}
 
 					// use matching texture for this model index

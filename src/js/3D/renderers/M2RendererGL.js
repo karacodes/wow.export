@@ -1750,10 +1750,15 @@ class M2RendererGL {
 	async applyReplaceableTextures(displays) {
 		for (let i = 0; i < this.m2.textureTypes.length; i++) {
 			const textureType = this.m2.textureTypes[i];
+			let file_data_id = 0;
 			if (textureType >= 11 && textureType < 14)
-				await this.overrideTextureType(textureType, displays.textures[textureType - 11]);
+				file_data_id = displays.textures[textureType - 11];
 			else if (textureType > 1 && textureType < 5)
-				await this.overrideTextureType(textureType, displays.textures[textureType - 2]);
+				file_data_id = displays.textures[textureType - 2];
+
+			// a slot the display gives no texture (0) keeps the model's own (wow-to-stl #319)
+			if (file_data_id > 0)
+				await this.overrideTextureType(textureType, file_data_id);
 		}
 	}
 

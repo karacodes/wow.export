@@ -27,8 +27,21 @@
 	display.modelSlots) for this test.
 */
 
+/*
+	Meshes of a fitted back model (wow-to-stl #319): some carry pieces for other
+	body regions next to the cloak. Renowned Explorer's Rucksack (item 171333,
+	model resource 54344) has geosets 501, 1101, 1801, 2201 and 2801 (shin, thigh,
+	belt, torso and upper-arm pieces) beside the backpack (1501); two more fitted
+	back models in the game data do the same (51130, 56130). The game shows only
+	the cloak group, as for any back collection model (Wowhead's render: backpack
+	only). Every mesh was kept, so those pieces were exported and printed too.
+	The 3D capes (cape_armor_legion_d_01 and the like) have only 1501 and are
+	unchanged.
+*/
+
 const HEAD_SLOT = 1;
 const BACK_SLOT = 15;
+const CLOAK_GEOSET_GROUP = 15;
 
 /**
  * Whether an item model in a slot is a race-fitted model to skin to the character's
@@ -72,7 +85,21 @@ function is_fitted_head_model(slot_id, model_slot) {
 	return slot_id === HEAD_SLOT && model_slot >= 1;
 }
 
+/**
+ * Which meshes of a race-fitted back model to show: only the cloak group's mesh that
+ * the display picks (15xx, 1 + AttachmentGeosetGroup[0]); every other mesh is hidden.
+ * @param {number[]} submesh_ids - the model's skin submesh ids, in draw order
+ * @param {number[]} [attachment_geoset_group] - ItemDisplayInfo.AttachmentGeosetGroup
+ * @returns {boolean[]}
+ */
+function fitted_back_geoset_visibility(submesh_ids, attachment_geoset_group) {
+	const range_min = CLOAK_GEOSET_GROUP * 100;
+	const target_id = range_min + 1 + (attachment_geoset_group?.[0] ?? 0);
+	return (submesh_ids || []).map(id => id === target_id);
+}
+
 module.exports = {
+	fitted_back_geoset_visibility,
 	HEAD_SLOT,
 	BACK_SLOT,
 	is_fitted_back_model,

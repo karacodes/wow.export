@@ -79,3 +79,26 @@ test('the Judgment Crown\'s model resource is in the first slot, and shoulders k
 	assert.deepEqual(model_resource_slots([16512, 16512]), [0, 1]);
 	assert.deepEqual(model_resource_slots(undefined), []);
 });
+
+/*
+	Regression test for Renowned Explorer's Rucksack (wow-to-stl #319): its fitted model
+	(gnome female 2964928) has geosets 501, 1101, 1501, 1801, 2201, 2801. The game shows
+	only the backpack (1501); every mesh was kept, so the shin, thigh, belt, torso and
+	upper-arm pieces were exported too.
+*/
+const { fitted_back_geoset_visibility } = require('../src/js/wow/fitted-back-model');
+
+test('the rucksack shows only its backpack mesh (1501)', () => {
+	assert.deepEqual(fitted_back_geoset_visibility([501, 1101, 1501, 1801, 2201, 2801], [0, 0, 0, 0, 0, 0]),
+		[false, false, true, false, false, false]);
+	assert.deepEqual(fitted_back_geoset_visibility([501, 1101, 1501, 1801, 2201, 2801], undefined),
+		[false, false, true, false, false, false]);
+});
+
+test('a 3D cape with only cloak meshes keeps them all (hm-cape 253340, model 7214234)', () => {
+	assert.deepEqual(fitted_back_geoset_visibility([1501, 1501, 1501, 1501], [0, 0, 0, 0, 0, 0]), [true, true, true, true]);
+});
+
+test('the display\'s AttachmentGeosetGroup picks the cloak variant', () => {
+	assert.deepEqual(fitted_back_geoset_visibility([1501, 1502, 1503], [2]), [false, false, true]);
+});
