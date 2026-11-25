@@ -5,12 +5,15 @@
 const log = require('../../log');
 const db2 = require('../../casc/db2');
 const DBTextureFileData = require('./DBTextureFileData');
+const { model_texture_lists } = require('../../wow/replaceable-textures');
 
 const itemDisplays = new Map();
 
-// ItemDisplayInfoID -> Array indexed by ModelIndex -> texture fileDataIDs for that model,
-// in TextureType order. ItemDisplayInfo pairs ModelResourcesID[n] with the rows whose
-// ModelIndex is n, so a two-model item (a belt's buckle and band) has two lists.
+// ItemDisplayInfoID -> Array indexed by ModelIndex -> that model's variant texture list:
+// entry n is M2 texture type n + 2, 0 where the display has none (model_texture_lists in
+// src/js/wow/replaceable-textures.js, wow-to-stl #319). ItemDisplayInfo pairs
+// ModelResourcesID[n] with the rows whose ModelIndex is n, so a two-model item (a belt's
+// buckle and band) has two lists.
 const itemDisplayModelTextures = new Map();
 
 // ItemDisplayInfoID -> { [TextureType]: texture fileDataIDs }, for the replaceable
@@ -29,9 +32,11 @@ const initializeIDIMMR = async () => {
 
 	log.write('Loading item display info model mat res...');
 
+	const rows = [];
 	for (const [id, row] of await db2.ItemDisplayInfoModelMatRes.getAllRows()) {
 		if (id === 0)
 			continue;
+		rows.push(row);
 		const itemdisplayinfoid = row.ItemDisplayInfoID;
 		const matresid = row.MaterialResourcesID;
 		const textureFileDataIDs = DBTextureFileData.getTextureFDIDsByMatID(matresid);
@@ -41,18 +46,6 @@ const initializeIDIMMR = async () => {
 				itemDisplays.get(itemdisplayinfoid).push(...textureFileDataIDs);
 			else
 				itemDisplays.set(itemdisplayinfoid, [...textureFileDataIDs]);
-
-			let by_model = itemDisplayModelTextures.get(itemdisplayinfoid);
-			if (by_model === undefined) {
-				by_model = [];
-				itemDisplayModelTextures.set(itemdisplayinfoid, by_model);
-			}
-
-			const model_index = row.ModelIndex ?? 0;
-			if (by_model[model_index] === undefined)
-				by_model[model_index] = [];
-
-			by_model[model_index].push({ textureType: row.TextureType ?? 0, textureFileDataIDs });
 
 			let by_type = itemDisplayTexturesByType.get(itemdisplayinfoid);
 			if (by_type === undefined) {
@@ -68,16 +61,10 @@ const initializeIDIMMR = async () => {
 		}
 	}
 
-	// flatten each model's entries in TextureType order
-	for (const by_model of itemDisplayModelTextures.values()) {
-		for (let i = 0; i < by_model.length; i++) {
-			if (by_model[i] === undefined)
-				continue;
-
-			by_model[i].sort((a, b) => a.textureType - b.textureType);
-			by_model[i] = by_model[i].flatMap(entry => entry.textureFileDataIDs);
-		}
-	}
+	// each model's textures as a list indexed by texture type (a display with only a
+	// type-3 texture keeps slot 2 empty instead of moving the texture there)
+	for (const [display_id, lists] of model_texture_lists(rows, DBTextureFileData.getTextureFDIDsByMatID))
+		itemDisplayModelTextures.set(display_id, lists);
 
 	log.write('Loaded %d item display info model mat res items', itemDisplays.size);
 	is_initialized = true;
@@ -98,9 +85,9 @@ const getItemDisplayIdTextureFileIds = (ItemDisplayInfoId) => {
 };
 
 /**
- * Get texture file id's for one model of an item display.
+ * The variant texture list for one model of an item display (entry n is texture type n + 2).
  * @param {number} ItemDisplayInfoId
- * @param {number} modelIndex - index into ItemDisplayInfo.ModelResourcesID
+ * @param {number} modelIndex - the ItemDisplayInfo.ModelResourcesID slot (ModelIndex)
  * @returns {number[]|undefined}
  */
 const getItemDisplayModelTextureFileIds = (ItemDisplayInfoId, modelIndex) => {

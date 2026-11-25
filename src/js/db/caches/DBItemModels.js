@@ -11,6 +11,7 @@ const DBItemDisplayInfoModelMatRes = require('./DBItemDisplayInfoModelMatRes');
 const DBTextureFileData = require('./DBTextureFileData');
 const DBComponentModelFileData = require('./DBComponentModelFileData');
 const { model_resource_slots } = require('../../wow/fitted-back-model');
+const { model_textures_for_slots, variant_textures_from_type_map } = require('../../wow/replaceable-textures');
 
 // maps ItemID -> Map<ItemAppearanceModifierID, ItemDisplayInfoID>
 const item_to_display_ids = new Map();
@@ -101,9 +102,10 @@ const initialize = async () => {
 			if (!has_models && texture_file_data_ids.length === 0)
 				continue;
 
-			// and per model: model n of the item uses the textures with ModelIndex n
-			const textures_by_model = model_res_ids.map((_, model_index) =>
-				DBItemDisplayInfoModelMatRes.getItemDisplayModelTextureFileIds(display_id, model_index) || []);
+			// and per model: the model in ModelResourcesID slot n uses the textures with
+			// ModelIndex n (by the real slot: the Dragonscale backpack's model is in slot 1)
+			const textures_by_model = model_textures_for_slots(model_slots, slot =>
+				DBItemDisplayInfoModelMatRes.getItemDisplayModelTextureFileIds(display_id, slot));
 
 			// geoset groups for character model and attachment/collection models
 			const geoset_group = row.GeosetGroup || [];
@@ -277,8 +279,10 @@ const get_item_display = (item_id, race_id, gender_index, modifier_id, shoulder_
 };
 
 /**
- * Textures for one model of an item display: the ModelIndex list when the display has
- * one for that model, else the whole list (single-model items, old data).
+ * Textures for one model of an item display, as the variant list the renderer and
+ * exporters read (entry n is M2 texture type n + 2, 0 where the display has none;
+ * wow-to-stl #319): the ModelIndex list when the display has one for that model, else
+ * the display's textures by type, else the whole list (old data with no types).
  * @param {object|null} display - result of get_item_display
  * @param {number} model_index - entry of display.modelIndices for the model
  * @returns {number[]}
@@ -290,6 +294,10 @@ const get_item_textures_for_model = (display, model_index) => {
 	const for_model = display.texturesByModel?.[model_index];
 	if (for_model && for_model.length > 0)
 		return for_model;
+
+	const by_type = variant_textures_from_type_map(display.texturesByType);
+	if (by_type.length > 0)
+		return by_type;
 
 	return display.textures || [];
 };
