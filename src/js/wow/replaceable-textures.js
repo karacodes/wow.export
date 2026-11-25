@@ -60,7 +60,55 @@ function variant_textures_from_type_map(textures_by_type) {
 	return variant_textures_by_type(Object.entries(textures_by_type).map(([type, ids]) => ({ textureType: Number(type), textureFileDataIDs: ids })));
 }
 
+/**
+ * Every item display's per-model variant lists from ItemDisplayInfoModelMatRes rows: the
+ * rows of one display with ModelIndex n give list n (n is the ItemDisplayInfo.ModelResourcesID
+ * slot, so a display whose only model is in slot 1 has no list 0).
+ * @param {Iterable<{ItemDisplayInfoID: number, MaterialResourcesID: number, TextureType?: number, ModelIndex?: number}>} rows
+ * @param {function(number): (number[]|undefined)} files_for_material - TextureFileData lookup
+ * @returns {Map<number, number[][]>} ItemDisplayInfoID -> lists indexed by ModelIndex
+ */
+function model_texture_lists(rows, files_for_material) {
+	const entries = new Map();
+	for (const row of rows || []) {
+		const textureFileDataIDs = files_for_material(row.MaterialResourcesID);
+		if (textureFileDataIDs === undefined)
+			continue;
+
+		let by_model = entries.get(row.ItemDisplayInfoID);
+		if (by_model === undefined) {
+			by_model = [];
+			entries.set(row.ItemDisplayInfoID, by_model);
+		}
+
+		const model_index = row.ModelIndex ?? 0;
+		if (by_model[model_index] === undefined)
+			by_model[model_index] = [];
+
+		by_model[model_index].push({ textureType: row.TextureType ?? 0, textureFileDataIDs });
+	}
+
+	const lists = new Map();
+	for (const [display_id, by_model] of entries)
+		lists.set(display_id, by_model.map(model_entries => variant_textures_by_type(model_entries)));
+
+	return lists;
+}
+
+/**
+ * The variant lists of a display's models in the order DBItemModels keeps them: one per
+ * non-empty ModelResourcesID slot, looked up by the slot itself.
+ * @param {number[]} model_slots - the ModelResourcesID slot of each model (model_resource_slots)
+ * @param {function(number): (number[]|undefined)} list_for_slot - the display's list for a ModelIndex
+ * @returns {number[][]}
+ */
+function model_textures_for_slots(model_slots, list_for_slot) {
+	return (model_slots || []).map(slot => list_for_slot(slot) || []);
+}
+
 module.exports = {
 	variant_textures_by_type,
-	variant_textures_from_type_map
+	variant_textures_from_type_map,
+	model_texture_lists,
+	model_textures_for_slots
 };

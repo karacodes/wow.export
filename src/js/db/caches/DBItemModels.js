@@ -11,7 +11,7 @@ const DBItemDisplayInfoModelMatRes = require('./DBItemDisplayInfoModelMatRes');
 const DBTextureFileData = require('./DBTextureFileData');
 const DBComponentModelFileData = require('./DBComponentModelFileData');
 const { model_resource_slots } = require('../../wow/fitted-back-model');
-const { variant_textures_from_type_map } = require('../../wow/replaceable-textures');
+const { model_textures_for_slots, variant_textures_from_type_map } = require('../../wow/replaceable-textures');
 
 // maps ItemID -> Map<ItemAppearanceModifierID, ItemDisplayInfoID>
 const item_to_display_ids = new Map();
@@ -104,8 +104,8 @@ const initialize = async () => {
 
 			// and per model: the model in ModelResourcesID slot n uses the textures with
 			// ModelIndex n (by the real slot: the Dragonscale backpack's model is in slot 1)
-			const textures_by_model = model_slots.map(slot =>
-				DBItemDisplayInfoModelMatRes.getItemDisplayModelTextureFileIds(display_id, slot) || []);
+			const textures_by_model = model_textures_for_slots(model_slots, slot =>
+				DBItemDisplayInfoModelMatRes.getItemDisplayModelTextureFileIds(display_id, slot));
 
 			// geoset groups for character model and attachment/collection models
 			const geoset_group = row.GeosetGroup || [];
