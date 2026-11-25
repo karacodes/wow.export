@@ -55,3 +55,27 @@ test('second-slot models of other slots keep their attachment rules (the right s
 	assert.equal(is_fitted_head_model(16, 1), false);
 	assert.equal(is_fitted_head_model(15, 1), false);
 });
+
+/*
+	The first fix tested the model's index after DBItemModels had dropped the empty
+	ModelResourcesID slots, so the hood's only model came out as index 0 and stayed on the Helm
+	point (mac-job-2, 2026-11-25: "Loaded attachment model 4260228 for slot 1 attachment 11").
+	The slot each model came from is what tells a fitted head model.
+ */
+const { model_resource_slots } = require('../src/js/wow/fitted-back-model');
+
+test('Vagabond\'s Camo Hood\'s only model resource is in the second slot', () => {
+	// ItemDisplayInfo 655731: ModelResourcesID [0, 62770]
+	const slots = model_resource_slots([0, 62770]);
+	assert.deepEqual(slots, [1]);
+	assert.equal(is_fitted_head_model(1, slots[0]), true);
+});
+
+test('the Judgment Crown\'s model resource is in the first slot, and shoulders keep both', () => {
+	// ItemDisplayInfo 45888: ModelResourcesID [16511, 0]
+	const slots = model_resource_slots([16511, 0]);
+	assert.deepEqual(slots, [0]);
+	assert.equal(is_fitted_head_model(1, slots[0]), false);
+	assert.deepEqual(model_resource_slots([16512, 16512]), [0, 1]);
+	assert.deepEqual(model_resource_slots(undefined), []);
+});

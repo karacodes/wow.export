@@ -789,7 +789,7 @@ async function update_equipment_models(core) {
 		for (let i = 0; i < display.models.length; i++) {
 			const entry = { file_data_id: display.models[i], model_index: display.modelIndices?.[i] ?? i };
 			if (i < attachment_model_count) {
-				if (is_fitted_head_model(slot_id, entry.model_index)) {
+				if (is_fitted_head_model(slot_id, display.modelSlots?.[i] ?? entry.model_index)) {
 					// a hood with no attached helm: keep every mesh, as the attachment path did
 					collection_entries.push({ ...entry, keep_geosets: true });
 					log.write('Head model %d is built on the character, skinned instead of attached', entry.file_data_id);

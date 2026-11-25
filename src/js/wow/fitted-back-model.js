@@ -22,6 +22,9 @@
 	pinned to the Helm point and floated a head-height above every race. A head
 	model from the second slot is skinned like the fitted capes; the attached
 	helm (Judgment Crown 16955, display 45888, first slot only) stays attached.
+	DBItemModels drops empty ModelResourcesID slots, so the hood's model came out
+	first: the slot each model came from is kept beside it (model_resource_slots,
+	display.modelSlots) for this test.
 */
 
 const HEAD_SLOT = 1;
@@ -42,20 +45,37 @@ function is_fitted_back_model(slot_id, model_info) {
 }
 
 /**
+ * The ModelResourcesID slot of each model resource an item display uses, in order: the
+ * positions of the non-zero entries (ItemDisplayInfo.ModelResourcesID [0, 62770], the camo
+ * hood, gives [1]).
+ * @param {number[]} model_resources_ids - ItemDisplayInfo.ModelResourcesID
+ * @returns {number[]}
+ */
+function model_resource_slots(model_resources_ids) {
+	const slots = [];
+	(model_resources_ids || []).forEach((id, slot) => {
+		if (id > 0)
+			slots.push(slot);
+	});
+	return slots;
+}
+
+/**
  * Whether a head item model is built on the character's skeleton (skinned like a
  * collection model) rather than pinned to the Helm attachment point: the models of
  * the display's second ModelResourcesID slot.
  * @param {number} slot_id - equipment slot (1 = head)
- * @param {number} model_index - the ModelResourcesID slot the model came from (display.modelIndices)
+ * @param {number} model_slot - the ModelResourcesID slot the model came from (display.modelSlots)
  * @returns {boolean}
  */
-function is_fitted_head_model(slot_id, model_index) {
-	return slot_id === HEAD_SLOT && model_index >= 1;
+function is_fitted_head_model(slot_id, model_slot) {
+	return slot_id === HEAD_SLOT && model_slot >= 1;
 }
 
 module.exports = {
 	HEAD_SLOT,
 	BACK_SLOT,
 	is_fitted_back_model,
-	is_fitted_head_model
+	is_fitted_head_model,
+	model_resource_slots
 };
