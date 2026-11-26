@@ -20,6 +20,7 @@ const GLTFWriter = require('../writers/GLTFWriter');
 const GeosetMapper = require('../GeosetMapper');
 const { with_embedded_textures } = require('../../wow/equipment-textures');
 const { section_blend_mode, blend_modes_by_mesh } = require('../../wow/item-mesh-blend');
+const { section_alpha_track, alpha_tracks_by_mesh } = require('../../wow/item-mesh-alpha');
 const ExportHelper = require('../../casc/export-helper');
 const BufferWrapper = require('../../buffer');
 
@@ -140,8 +141,13 @@ class M2Exporter {
 				const { equipmentIndex, ...rest } = entry;
 				const equip = equipmentIndex !== undefined ? this.equipmentModels?.[equipmentIndex] : undefined;
 				const meshes = equip?.mesh_names ? [...equip.mesh_names] : [];
-				// the game's blend mode per mesh: WoW Print leaves additive glow cards out of the print
-				return Object.assign(rest, { meshes, meshBlendModes: blend_modes_by_mesh(meshes, equip?.mesh_blend_modes) });
+				// the game's blend mode per mesh: WoW Print leaves additive glow cards out of the print;
+				// and how each mesh fades in Stand: WoW Print finds meshes that take turns (wow-to-stl #150)
+				return Object.assign(rest, {
+					meshes,
+					meshBlendModes: blend_modes_by_mesh(meshes, equip?.mesh_blend_modes),
+					meshAlpha: alpha_tracks_by_mesh(meshes, equip?.mesh_alpha)
+				});
 			});
 		}
 
@@ -800,6 +806,7 @@ class M2Exporter {
 		const base_name = is_skinned_model ? (equip.name || `Custom_${slot_id}`) : `${slot_name}_Item${item_id}`;
 		equip.mesh_names = [];
 		equip.mesh_blend_modes = [];
+		equip.mesh_alpha = [];
 
 		for (let mI = 0; mI < skin.subMeshes.length; mI++) {
 			// check visibility via draw_calls if available
@@ -839,6 +846,7 @@ class M2Exporter {
 			obj.addMesh(meshName, verts, matName);
 			equip.mesh_names.push(meshName);
 			equip.mesh_blend_modes.push(section_blend_mode(m2, skin, mI));
+			equip.mesh_alpha.push(section_alpha_track(m2, skin, mI));
 		}
 
 		log.write('Added equipment meshes for slot %d (item %d)', slot_id, item_id);
