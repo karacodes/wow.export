@@ -48,11 +48,27 @@ function det3(a) {
 	return a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) + a[2] * (a[3] * a[7] - a[4] * a[6]);
 }
 
+/** True when `m` has at least `count` entries and every one is a finite number. */
+function all_finite(m, count) {
+	if (!m || m.length < count)
+		return false;
+
+	for (let i = 0; i < count; i++) {
+		if (!Number.isFinite(m[i]))
+			return false;
+	}
+	return true;
+}
+
 /**
  * The nearest signed axis permutation to `a` (each row and column one +-1): the best of the
- * 48 such matrices by sum of products.
+ * 48 such matrices by sum of products. Never null: on non-finite input (a hand attachment read
+ * from a bone the renderer has no matrix for, wow-to-stl #343) it is the left/right flip.
  */
 function snap_signed_permutation(a) {
+	if (!all_finite(a, 9))
+		return MIRROR_LR.slice();
+
 	const perms = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
 	let best = null, best_score = -Infinity;
 	for (const p of perms) {
@@ -73,15 +89,30 @@ function snap_signed_permutation(a) {
 
 /**
  * The item-space mirror N for a real left-hand copy, from the left- and right-hand attachment
- * transforms (column-major 4x4, model space). Without both, the character's left/right flip.
+ * transforms (column-major 4x4, model space). Without both, or when either has a non-finite
+ * entry (wow-to-stl #343: Dracthyr), the character's left/right flip.
  * @returns {number[]} row-major 3x3, a signed permutation with determinant -1
  */
 function left_hand_mirror(left_m4, right_m4) {
-	if (!left_m4 || !right_m4)
+	if (!all_finite(left_m4, 16) || !all_finite(right_m4, 16))
 		return MIRROR_LR.slice();
 
 	const n = snap_signed_permutation(mul3(transpose3(rotation_of(left_m4)), mul3(MIRROR_LR, rotation_of(right_m4))));
 	return det3(n) < 0 ? n : MIRROR_LR.slice();
+}
+
+/**
+ * The mirror for the off-hand option: null unless the option is on and an equipped item can be
+ * mirrored; the hands are read (`hand_transforms()` -> [left_m4, right_m4]) only then, so a
+ * character with no off-hand weapon never touches them (wow-to-stl #343).
+ * @returns {number[]|null}
+ */
+function off_hand_mirror_matrix(mirrored, any_mirrorable, hand_transforms) {
+	if (!mirrored || !any_mirrorable)
+		return null;
+
+	const [left_m4, right_m4] = hand_transforms?.() ?? [];
+	return left_hand_mirror(left_m4, right_m4);
 }
 
 /** Multiply packed XYZ triples by row-major 3x3 `m`, in place. */
@@ -147,4 +178,4 @@ function set_m2_mirror(m2, m) {
 	return true;
 }
 
-module.exports = { MIRROR_LR, rotation_of, snap_signed_permutation, left_hand_mirror, transform_xyz, reverse_winding, set_m2_mirror };
+module.exports = { MIRROR_LR, rotation_of, snap_signed_permutation, left_hand_mirror, off_hand_mirror_matrix, transform_xyz, reverse_winding, set_m2_mirror };

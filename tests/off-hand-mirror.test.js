@@ -14,7 +14,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mirrors_off_hand } = require('../src/js/wow/EquipmentSlots');
-const { MIRROR_LR, left_hand_mirror, snap_signed_permutation, transform_xyz, reverse_winding, set_m2_mirror } = require('../src/js/3D/mirror-geometry');
+const { MIRROR_LR, left_hand_mirror, off_hand_mirror_matrix, snap_signed_permutation, transform_xyz, reverse_winding, set_m2_mirror } = require('../src/js/3D/mirror-geometry');
+const { bone_matrix_at } = require('../src/js/3D/bone-matrix');
 
 const MAIN_HAND = 16, OFF_HAND = 17;
 const INV = { ONE_HAND: 13, SHIELD: 14, WEAPON_MAIN_HAND: 21, WEAPON_OFF_HAND: 22, HOLDABLE: 23 };
@@ -71,6 +72,48 @@ test('a slightly uneven stance gives the same clean mirror', () => {
 test('without hand attachments it falls back to the left/right flip, not the item\'s up/down', () => {
 	assert.deepEqual(left_hand_mirror(null, null), MIRROR_LR);
 	assert.deepEqual(MIRROR_LR, [1, 0, 0, 0, 1, 0, 0, 0, -1]);
+});
+
+// wow-to-stl #343: a Dracthyr export with Off-hand Mirrored threw "Cannot read properties of
+// null (reading '0')" in det3 <- left_hand_mirror. Its hand bones are past the 256 bone matrices
+// the renderer holds, so the hand transforms came out NaN and the snap returned null.
+test('a NaN hand transform falls back to the left/right flip instead of throwing (#343)', () => {
+	const right = m4(mul(rot('z', 90), rot('x', 90)), 0.83, [0.2, 1, 0.3]);
+	const nan = new Float32Array(16).fill(NaN);
+	assert.deepEqual(left_hand_mirror(nan, right), MIRROR_LR);
+	assert.deepEqual(left_hand_mirror(right, nan), MIRROR_LR);
+	assert.deepEqual(left_hand_mirror(nan, nan), MIRROR_LR);
+	const one_nan = [...right];
+	one_nan[5] = NaN;
+	assert.deepEqual(left_hand_mirror(one_nan, right), MIRROR_LR);
+	assert.deepEqual(left_hand_mirror(right.slice(0, 8), right), MIRROR_LR, 'a short matrix');
+	assert.deepEqual(snap_signed_permutation(new Array(9).fill(NaN)), MIRROR_LR);
+	assert.deepEqual(snap_signed_permutation([1, 0, 0, 0, Infinity, 0, 0, 0, 1]), MIRROR_LR);
+});
+
+test('the hands are read only when the option is on and an item can be mirrored (#343)', () => {
+	let reads = 0;
+	const hands = () => { reads++; return [new Float32Array(16).fill(NaN), null]; };
+	assert.equal(off_hand_mirror_matrix(true, false, hands), null, 'no off-hand weapon: nothing to mirror');
+	assert.equal(off_hand_mirror_matrix(false, true, hands), null, 'option off');
+	assert.equal(reads, 0);
+	assert.deepEqual(off_hand_mirror_matrix(true, true, hands), MIRROR_LR);
+	assert.equal(reads, 1);
+	const right = mul(rot('z', 90), rot('x', 90));
+	const left = mul(mul(MIRROR_LR, right), MIRROR_LR);
+	assert.deepEqual(off_hand_mirror_matrix(true, true, () => [m4(left), m4(right)]), left_hand_mirror(m4(left), m4(right)));
+});
+
+test('a bone past the renderer\'s matrices has no matrix (#343)', () => {
+	const mats = new Float32Array(256 * 16);
+	mats.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 7, 8, 9, 1], 255 * 16);
+	assert.deepEqual([...bone_matrix_at(mats, 255)], [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 7, 8, 9, 1]);
+	assert.equal(bone_matrix_at(mats, 255).length, 16);
+	assert.equal(bone_matrix_at(mats, 256), null);
+	assert.equal(bone_matrix_at(mats, 300), null);
+	assert.equal(bone_matrix_at(mats, -1), null);
+	assert.equal(bone_matrix_at(null, 0), null);
+	assert.equal(bone_matrix_at(mats.subarray(0, 20), 1), null, 'a partial last matrix');
 });
 
 // a lopsided tetrahedron, faces wound outward

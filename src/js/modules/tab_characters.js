@@ -24,7 +24,7 @@ const { wowhead_parse } = require('../wowhead');
 const InstallType = require('../install-type');
 const charTextureOverlay = require('../ui/char-texture-overlay');
 const PNGWriter = require('../png-writer');
-const { left_hand_mirror } = require('../3D/mirror-geometry');
+const { off_hand_mirror_matrix } = require('../3D/mirror-geometry');
 const { EQUIPMENT_SLOTS, SHOULDER_SLOT_L, SHOULDER_SLOT_R, ATTACHMENT_ID, get_slot_name, get_attachment_ids_for_item, get_sheath_attachment_id, mirrors_off_hand, get_slot_layer } = require('../wow/EquipmentSlots');
 const DBItems = require('../db/caches/DBItems');
 const DBItemCharTextures = require('../db/caches/DBItemCharTextures');
@@ -901,13 +901,13 @@ async function update_equipment_models(core) {
  * @param {object} core
  */
 async function apply_off_hand_mirror(core) {
-	const mirrored = core.view.config.chrMirrorOffHand === true;
-	let matrix = null;
-	if (mirrored) {
-		matrix = left_hand_mirror(
-			active_renderer?.getAttachmentTransform?.(ATTACHMENT_ID.HAND_LEFT, false),
-			active_renderer?.getAttachmentTransform?.(ATTACHMENT_ID.HAND_RIGHT, false));
-	}
+	let any_mirrorable = false;
+	for (const entry of equipment_model_renderers.values())
+		any_mirrorable ||= entry.renderers.some(item => item.mirrorable);
+
+	const matrix = off_hand_mirror_matrix(core.view.config.chrMirrorOffHand === true, any_mirrorable, () => [
+		active_renderer?.getAttachmentTransform?.(ATTACHMENT_ID.HAND_LEFT, false),
+		active_renderer?.getAttachmentTransform?.(ATTACHMENT_ID.HAND_RIGHT, false)]);
 
 	for (const [slot_id, entry] of equipment_model_renderers) {
 		for (const item of entry.renderers) {
