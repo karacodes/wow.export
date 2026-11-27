@@ -21,6 +21,7 @@ const GLTexture = require('../gl/GLTexture');
 const textureRibbon = require('../../ui/texture-ribbon');
 const { create_bones_ubo } = require('./renderer_utils');
 const { set_m2_mirror } = require('../mirror-geometry');
+const { bone_matrix_at } = require('../bone-matrix');
 const { track_keys, has_global_seq } = require('../bone-tracks');
 
 // vertex shader name to ID mapping (matches vertex shader switch cases)
@@ -1894,13 +1895,18 @@ class M2RendererGL {
 		if (!attachment)
 			return null;
 
+		// get bone world matrix (includes rotation from animation); none for a bone past the
+		// matrices the shader holds (wow-to-stl #343), which would fill the result with NaN
 		const bone_idx = attachment.bone;
-		if (bone_idx < 0 || !this.bone_matrices)
+		const bone_mat = bone_matrix_at(this.bone_matrices, bone_idx);
+		if (!bone_mat) {
+			this._missing_bone_logged ??= new Set();
+			if (bone_idx >= 0 && this.bone_matrices && !this._missing_bone_logged.has(attachmentId)) {
+				this._missing_bone_logged.add(attachmentId);
+				log.write('Attachment %d: bone %d has no matrix (%d bones, %d matrices)', attachmentId, bone_idx, this.bones?.length ?? 0, this.bone_matrices.length / 16);
+			}
 			return null;
-
-		// get bone world matrix (includes rotation from animation)
-		const bone_offset = bone_idx * 16;
-		const bone_mat = this.bone_matrices.subarray(bone_offset, bone_offset + 16);
+		}
 
 		// attachment position is in WoW coords (X=right, Y=forward, Z=up)
 		// convert to WebGL coords (X=right, Y=up, Z=-forward)
